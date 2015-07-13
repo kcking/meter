@@ -1,0 +1,11 @@
+[package]
+name = "meter"
+version = "0.1.0"
+authors = ["Kevin King <4kevinking@gmail.com>"]
+
+[dependencies]
+getopts = "0.2"
+sound_stream = "*"
+
+[dependencies.rust-osc]
+git = "https://github.com/generalelectrix/rust-osc.git"
