@@ -1,6 +1,7 @@
 #![feature(convert)]
 #![feature(core)]
 #![feature(split_off)]
+#![feature(iter_arith)]
 
 extern crate getopts;
 extern crate core;
@@ -55,7 +56,7 @@ impl PartialEq for IndexedMagnitude {
 const Fs : usize = 44100usize;
 extern crate num;
 use num::integer::Integer;
-fn pitch_center(buckets : &Vec<f32>) -> f32{
+fn pitch_detect(buckets : &Vec<f32>) -> f32{
     //  gcd of top 5 bands
     let mut indexed_buckets = vec!();
     let mut i = 0usize;
@@ -79,6 +80,17 @@ fn pitch_center(buckets : &Vec<f32>) -> f32{
     return freq;
 }
 
+fn pitch_centroid(buckets : &Vec<f32>) -> f32 {
+    let mut centroid = 0f32;
+    let totalMag : f32 = buckets.iter().sum();
+    let mut i = 1usize;
+    for bucket in buckets {
+        centroid += i as f32 * bucket / totalMag;
+        i += 1usize;
+    }
+    centroid / buckets.len() as f32
+}
+
 use std::iter::FromIterator;
 fn meter_fft(
     num_channels : i32,
@@ -100,7 +112,8 @@ fn meter_fft(
                         //  only use first half
                         fft_out.split_off(fft_buckets / 2usize);
                         let fft_norm = Vec::from_iter(fft_out.iter().map(|c| (c.r * c.r + c.i * c.i).sqrt()));
-                        println!("pitch center {}", pitch_center(&fft_norm));
+                        println!("pitch center {}", pitch_detect(&fft_norm));
+                        println!("pitch centroid {}", pitch_centroid(&fft_norm));
                         buf.clear();
                     }
 
