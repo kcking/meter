@@ -214,7 +214,7 @@ fn main() {
 
      let mut sender;
      match OscSender::new(
-         SocketAddrV4::new(Ipv4Addr::from_str("127.0.0.1").unwrap(), 7000),
+         SocketAddrV4::new(Ipv4Addr::from_str("127.0.0.1").unwrap(), 0),
          SocketAddrV4::new(Ipv4Addr::from_str(send_ip).unwrap(), send_port)
          ) {
          Ok(s) => { sender = s; },
