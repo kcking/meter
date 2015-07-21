@@ -34,7 +34,8 @@ use core::str::FromStr;
 
 type ChannelBuffers = Arc<Mutex<HashMap<i32, Vec<f32>>>>;
 
-const osc_interval : f32 = 1f32 / 30f32;
+const Fs : usize = 44100usize;
+const osc_interval : usize = Fs / 30usize;
 
 #[derive(Clone)]
 struct IndexedMagnitude {
@@ -53,7 +54,6 @@ impl PartialEq for IndexedMagnitude {
         return self.magnitude.eq(&other.magnitude);
     }
 }
-const Fs : usize = 44100usize;
 extern crate num;
 use num::integer::Integer;
 fn pitch_detect(buckets : &Vec<f32>) -> f32{
@@ -76,7 +76,6 @@ fn pitch_detect(buckets : &Vec<f32>) -> f32{
     let max_idx = harmonics.pop().unwrap();
     //  convert index to freq
     let freq = (max_idx.index * Fs) as f32 / buckets.len() as f32;
-    println!("{}", freq);
     return freq;
 }
 
@@ -112,14 +111,20 @@ fn meter_fft(
                         //  only use first half
                         fft_out.split_off(fft_buckets / 2usize);
                         let fft_norm = Vec::from_iter(fft_out.iter().map(|c| (c.r * c.r + c.i * c.i).sqrt()));
-                        println!("pitch center {}", pitch_detect(&fft_norm));
-                        println!("pitch centroid {}", pitch_centroid(&fft_norm));
-                        buf.clear();
+                        let pitch = pitch_detect(&fft_norm);
+                        let centroid = pitch_centroid(&fft_norm);
+                        let mut sender = osc_sender.lock().unwrap();
+                        sender.send(
+                            OscMessage{
+                            addr : format!("/opera/meter/id-{}/track{}/pitch_centroid", osc_prefix, chan_index).to_string(),
+                            args : vec!(OscFloat(centroid))
+                        });
+                        buf.truncate(fft_buckets * 7 / 8 as usize);
                     }
 
                     chan_index = (chan_index + 1) % num_channels;
                 } else {
-                    thread::sleep_ms(12u32 / num_channels as u32);
+                    thread::sleep_ms(12u32);
                 }
             }
         })
@@ -134,8 +139,8 @@ fn meter_rms(
     ) -> JoinHandle<()> {
     let mut rms_map : HashMap<i32, f32> = HashMap::new();
     let mut chan_idx = 0;
-    let mut time = 0f32;
-    let mut last_sent_time = 0f32;
+    let mut samples = 0usize;
+    let mut last_sent_time = 0usize;
     // TODO: use sample rate
     let alpha = 30f32 / 44100f32;
     thread::spawn(move || {
@@ -144,22 +149,30 @@ fn meter_rms(
                 let old_rms = *rms_map.entry(chan_idx).or_insert(0f32);
                 let new_rms = ((old_rms.powi(2) + s.powi(2)) / 2f32).sqrt();
                 rms_map.insert(chan_idx, (1f32 - alpha) * old_rms + new_rms * alpha);
-                if time > last_sent_time + osc_interval {
+                if samples > last_sent_time + osc_interval {
                     let mut sender = osc_sender.lock().unwrap();
+                    let mut msg_vec = vec!();
                     for (chan, rms) in rms_map.iter() {
                         let rms_msg = OscMessage{
                             addr : format!("/opera/meter/id-{}/track{}/rms", osc_prefix, chan).to_string(),
                             args : vec!(OscFloat(*rms as f32))
                         };
-                        sender.send(rms_msg);
+                        msg_vec.push(rms_msg);
                     }
-                    last_sent_time = time;
+                    let bundle = OscBundle {
+                        time_tag : (0, 1),
+                        conts : msg_vec
+                    };
+                    if let Err(e) = sender.send(bundle) {
+                        println!("Error sending OSC: {:?}", e);
+                    }
+                    last_sent_time = samples;
                 }
                 chan_idx = (chan_idx + 1) % num_channels;
-                time += 1f32 / (44100f32 * num_channels as f32);
+                samples += 1usize;
                 p.push(s);
             } else {
-                thread::sleep_ms(12u32 / num_channels as u32);
+                thread::sleep_ms(1u32);
             }
         }
     })
@@ -167,31 +180,37 @@ fn meter_rms(
 
 fn setup_stream(
     frames_per_buffer : u16,
-    num_channels : i32,
+    active_channels : i32,
+    total_channels : i32,
     p : Producer<f32>) {
-     let f = Box::new(move |input: &[f32], _: Settings, o: &mut[f32], _: Settings, dt: f64, _: CallbackFlags| {
-         for s in input.iter() {
-             p.push(*s);
-         }
-         return CallbackResult::Continue;
-     });
+        let mut channel_idx = 0usize;
+        let f = Box::new(move |input: &[f32], _: Settings, o: &mut[f32], _: Settings, dt: f64, _: CallbackFlags| {
+            for s in input.iter() {
+                if (channel_idx as i32) < active_channels {
+                    p.push(*s);
+                }
+                channel_idx = (channel_idx + 1usize) % total_channels as usize;
+            }
+            return CallbackResult::Continue;
+        });
 
-     let stream = SoundStream::new().frames_per_buffer(frames_per_buffer).duplex(StreamParams::new(), StreamParams::new()).run_callback(f).unwrap();
-     while let Ok(true) = stream.is_active() {
-        thread::sleep_ms(500);
-     }
+        let stream = SoundStream::new().frames_per_buffer(frames_per_buffer).duplex(StreamParams::new().channels(total_channels), StreamParams::new()).run_callback(f).unwrap();
+        while let Ok(true) = stream.is_active() {
+            thread::sleep_ms(500);
+        }
 }
 
 fn main() {
      let args: Vec<String> = env::args().collect();
-     let num_channels : i32 = i32::from_str_radix(args[1].as_str(), 10).unwrap();
-     let frames_per_buffer : usize = usize::from_str_radix(args[2].as_str(), 10).unwrap();
-     let send_ip = args[3].as_str();
-     let send_port = u16::from_str_radix(args[4].as_str(), 10).unwrap();
-     let meter_id = args[5].as_str();
+     let active_channels : i32 = i32::from_str_radix(args[1].as_str(), 10).unwrap();
+     let total_channels : i32 = i32::from_str_radix(args[2].as_str(), 10).unwrap();
+     let frames_per_buffer : usize = usize::from_str_radix(args[3].as_str(), 10).unwrap();
+     let send_ip = args[4].as_str();
+     let send_port = u16::from_str_radix(args[5].as_str(), 10).unwrap();
+     let meter_id = args[6].as_str();
 
-     let (p_pa, c_rms) = bounded_spsc_queue::make(16 * frames_per_buffer * (num_channels as usize));
-     let (p_rms, c_fft) = bounded_spsc_queue::make(16 * frames_per_buffer * (num_channels as usize));
+     let (p_pa, c_rms) = bounded_spsc_queue::make(16 * frames_per_buffer * (total_channels as usize));
+     let (p_rms, c_fft) = bounded_spsc_queue::make(16 * frames_per_buffer * (total_channels as usize));
 
      let mut sender;
      match OscSender::new(
@@ -202,7 +221,7 @@ fn main() {
          Err(e) => { panic!(e); }
      }
      let sender_arc = Arc::new(Mutex::new(sender));
-     meter_rms(num_channels, c_rms, p_rms, sender_arc.clone(), String::from(meter_id));
-     meter_fft(num_channels, c_fft, sender_arc.clone(), String::from(meter_id));
-     setup_stream(frames_per_buffer as u16, num_channels, p_pa);
+     meter_rms(active_channels, c_rms, p_rms, sender_arc.clone(), String::from(meter_id));
+     meter_fft(active_channels, c_fft, sender_arc.clone(), String::from(meter_id));
+     setup_stream(frames_per_buffer as u16, active_channels, total_channels, p_pa);
 }

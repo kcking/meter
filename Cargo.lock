@@ -6,7 +6,7 @@ dependencies = [
  "getopts 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "kissfft 0.0.8 (git+https://github.com/kcking/rust-kissfft.git)",
  "num 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
- "rust-osc 0.1.0 (git+https://github.com/generalelectrix/rust-osc)",
+ "rust-osc 0.1.0 (git+https://github.com/generalelectrix/rust-osc.git)",
  "sound_stream 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -99,7 +99,7 @@ dependencies = [
 [[package]]
 name = "rust-osc"
 version = "0.1.0"
-source = "git+https://github.com/generalelectrix/rust-osc#74fb85d7fefc9b51c4b15fd687aa8a2d993f116e"
+source = "git+https://github.com/generalelectrix/rust-osc.git#74fb85d7fefc9b51c4b15fd687aa8a2d993f116e"
 dependencies = [
  "byteorder 0.3.11 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
