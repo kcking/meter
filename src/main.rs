@@ -127,6 +127,8 @@ fn meter_fft(
         let mut bufs_by_channel = HashMap::new();
         let mut chan_index = 0;
         let fft_buckets = 2048*4;
+        let mut samples = 0usize;
+        let mut last_sent_time = 0usize;
         thread::spawn(move || {
             loop {
                 if let Some(s) = c.try_pop() {
@@ -140,25 +142,29 @@ fn meter_fft(
                         let fft_norm = Vec::from_iter(fft_out.iter().map(|c| (c.r * c.r + c.i * c.i).sqrt()));
                         let dissonance = dissonance(&fft_norm);
                         let centroid = pitch_centroid(&fft_norm);
-                        let mut sender = osc_sender.lock().unwrap();
-                        sender.send(
-                            OscBundle{
-                                time_tag : (0, 1),
-                                conts: vec!(
-                                    OscMessage{
-                                        addr : format!("/opera/meter/{}/track{}/pitchCentroid", osc_prefix, chan_index).to_string(),
-                                        args : vec!(OscFloat(centroid))
-                                    },
-                                    OscMessage{
-                                        addr : format!("/opera/meter/{}/track{}/dissonance", osc_prefix, chan_index).to_string(),
-                                        args : vec!(OscFloat(dissonance))
-                                    },
-                                    )
-                            });
+                        if samples > last_sent_time + osc_interval * (num_channels as usize) {
+                            last_sent_time = samples;
+                            let mut sender = osc_sender.lock().unwrap();
+                            sender.send(
+                                OscBundle{
+                                    time_tag : (0, 1),
+                                    conts: vec!(
+                                        OscMessage{
+                                            addr : format!("/opera/meter/{}/track{}/pitchCentroid", osc_prefix, chan_index).to_string(),
+                                            args : vec!(OscFloat(centroid))
+                                        },
+                                        OscMessage{
+                                            addr : format!("/opera/meter/{}/track{}/dissonance", osc_prefix, chan_index).to_string(),
+                                            args : vec!(OscFloat(dissonance))
+                                        },
+                                        )
+                                });
+                        }
                         buf.truncate(fft_buckets * 7 / 8 as usize);
                     }
 
                     chan_index = (chan_index + 1) % num_channels;
+                    samples += 1usize;
                 } else {
                     thread::sleep_ms(12u32);
                 }
