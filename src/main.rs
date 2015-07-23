@@ -79,15 +79,42 @@ fn pitch_detect(buckets : &Vec<f32>) -> f32{
     return freq;
 }
 
+fn idx_to_freq(idx : usize, buckets : usize) -> f32 {
+    (idx * Fs) as f32 / buckets as f32
+}
+
+fn bkt_to_freq(bkt : &IndexedMagnitude, buckets : usize) -> f32 {
+    idx_to_freq(bkt.index, buckets)
+}
+
+fn dissonance(buckets : &Vec<f32>) -> f32{
+    let mut indexed_buckets = vec!();
+    let mut i = 0usize;
+    for bucket in buckets {
+        indexed_buckets.push(IndexedMagnitude{index : i, magnitude: bucket.clone()});
+        i += 1usize;
+    }
+    //  desc sort by magnitude
+    indexed_buckets.sort_by(|a, b| b.partial_cmp(a).unwrap_or(Ordering::Equal));
+    let f0 = bkt_to_freq(&indexed_buckets[0], buckets.len() * 2);
+    let f1 = bkt_to_freq(&indexed_buckets[1], buckets.len() * 2);
+    let f2 = bkt_to_freq(&indexed_buckets[2], buckets.len() * 2);
+    let mut d1 = f1 / f0;
+    let mut d2 = f2 / f0;
+    d1 = (d1 - d1.floor() - 0.5f32) * 2f32;
+    d2 = (d2 - d2.floor() - 0.5f32) * 2f32;
+    (d1 - d2).abs()
+}
+
 fn pitch_centroid(buckets : &Vec<f32>) -> f32 {
     let mut centroid = 0f32;
     let totalMag : f32 = buckets.iter().sum();
     let mut i = 1usize;
     for bucket in buckets {
-        centroid += i as f32 * bucket / totalMag;
+        centroid += idx_to_freq(i, buckets.len() * 2) *  bucket / totalMag;
         i += 1usize;
     }
-    centroid / buckets.len() as f32
+    centroid
 }
 
 use std::iter::FromIterator;
@@ -111,14 +138,23 @@ fn meter_fft(
                         //  only use first half
                         fft_out.split_off(fft_buckets / 2usize);
                         let fft_norm = Vec::from_iter(fft_out.iter().map(|c| (c.r * c.r + c.i * c.i).sqrt()));
-                        let pitch = pitch_detect(&fft_norm);
+                        let dissonance = dissonance(&fft_norm);
                         let centroid = pitch_centroid(&fft_norm);
                         let mut sender = osc_sender.lock().unwrap();
                         sender.send(
-                            OscMessage{
-                            addr : format!("/opera/meter/id-{}/track{}/pitch_centroid", osc_prefix, chan_index).to_string(),
-                            args : vec!(OscFloat(centroid))
-                        });
+                            OscBundle{
+                                time_tag : (0, 1),
+                                conts: vec!(
+                                    OscMessage{
+                                        addr : format!("/opera/meter/{}/track{}/pitchCentroid", osc_prefix, chan_index).to_string(),
+                                        args : vec!(OscFloat(centroid))
+                                    },
+                                    OscMessage{
+                                        addr : format!("/opera/meter/{}/track{}/dissonance", osc_prefix, chan_index).to_string(),
+                                        args : vec!(OscFloat(dissonance))
+                                    },
+                                    )
+                            });
                         buf.truncate(fft_buckets * 7 / 8 as usize);
                     }
 
@@ -138,6 +174,7 @@ fn meter_rms(
     osc_prefix : String
     ) -> JoinHandle<()> {
     let mut rms_map : HashMap<i32, f32> = HashMap::new();
+    let mut max_amp_map : HashMap<i32, f32> = HashMap::new();
     let mut chan_idx = 0;
     let mut samples = 0usize;
     let mut last_sent_time = 0usize;
@@ -149,16 +186,27 @@ fn meter_rms(
                 let old_rms = *rms_map.entry(chan_idx).or_insert(0f32);
                 let new_rms = ((old_rms.powi(2) + s.powi(2)) / 2f32).sqrt();
                 rms_map.insert(chan_idx, (1f32 - alpha) * old_rms + new_rms * alpha);
-                if samples > last_sent_time + osc_interval {
+
+                let old_max_amp = *max_amp_map.entry(chan_idx).or_insert(0f32);
+                max_amp_map.insert(chan_idx, f32::max(old_max_amp, f32::abs(s)));
+                if samples > last_sent_time + osc_interval * (num_channels as usize) {
                     let mut sender = osc_sender.lock().unwrap();
                     let mut msg_vec = vec!();
                     for (chan, rms) in rms_map.iter() {
                         let rms_msg = OscMessage{
-                            addr : format!("/opera/meter/id-{}/track{}/rms", osc_prefix, chan).to_string(),
+                            addr : format!("/opera/meter/{}/track{}/rms", osc_prefix, chan).to_string(),
                             args : vec!(OscFloat(*rms as f32))
                         };
                         msg_vec.push(rms_msg);
                     }
+                    for (chan, max_amp) in max_amp_map.iter() {
+                        let amp_msg = OscMessage{
+                            addr : format!("/opera/meter/{}/track{}/maxAmp", osc_prefix, chan).to_string(),
+                            args : vec!(OscFloat(*max_amp))
+                        };
+                        msg_vec.push(amp_msg);
+                    }
+                    max_amp_map.clear();
                     let bundle = OscBundle {
                         time_tag : (0, 1),
                         conts : msg_vec
@@ -194,7 +242,7 @@ fn setup_stream(
             return CallbackResult::Continue;
         });
 
-        let stream = SoundStream::new().frames_per_buffer(frames_per_buffer).duplex(StreamParams::new().channels(total_channels), StreamParams::new()).run_callback(f).unwrap();
+        let stream = SoundStream::new().sample_hz(Fs as f64).frames_per_buffer(frames_per_buffer).duplex(StreamParams::new().channels(total_channels), StreamParams::new()).run_callback(f).unwrap();
         while let Ok(true) = stream.is_active() {
             thread::sleep_ms(500);
         }
