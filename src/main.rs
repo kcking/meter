@@ -2,9 +2,19 @@
 #![feature(core)]
 #![feature(split_off)]
 #![feature(iter_arith)]
+#![feature(drain)]
+#![feature(vec_push_all)]
 
 extern crate getopts;
 extern crate core;
+
+extern crate piston;
+extern crate graphics;
+extern crate glutin_window;
+extern crate opengl_graphics;
+
+mod display;
+
 
 use getopts::Options;
 use std::env;
@@ -101,9 +111,35 @@ fn dissonance(buckets : &Vec<f32>) -> f32{
     let f2 = bkt_to_freq(&indexed_buckets[2], buckets.len() * 2);
     let mut d1 = f1 / f0;
     let mut d2 = f2 / f0;
+    //println!("{} {} {}", f0, f1, f2);
     d1 = (d1 - d1.floor() - 0.5f32) * 2f32;
     d2 = (d2 - d2.floor() - 0.5f32) * 2f32;
     (d1 - d2).abs()
+}
+
+/// Return peaks of the signal considering values above 1/5 of the maximum
+/// Expects a vector of magnitudes
+fn find_peaks(buckets : &Vec<f32>) -> Vec<f32> {
+    let mut threshold = 0.0;
+    for bucket in buckets.iter() {
+        threshold = f32::max(threshold, *bucket);
+    }
+    threshold /= 5.0;
+    let mut peaks = vec!();
+    let mut buckets = buckets.iter();
+    let mut left = buckets.next().unwrap();
+    let mut mid = buckets.next().unwrap();
+    for bucket in buckets {
+        if *bucket < threshold {
+            continue;
+        }
+        if left < mid && bucket < mid {
+            peaks.push(*bucket);
+        }
+        left = mid;
+        mid = bucket;
+    }
+    peaks
 }
 
 fn pitch_centroid(buckets : &Vec<f32>) -> f32 {
@@ -122,11 +158,12 @@ fn meter_fft(
     num_channels : i32,
     c : Consumer<f32>,
     osc_sender : Arc<Mutex<OscSender>>,
-    osc_prefix : String
+    osc_prefix : String,
+    display_buckets : Arc<Mutex<Vec<f32>>>,
     ) -> JoinHandle<()> {
         let mut bufs_by_channel = HashMap::new();
         let mut chan_index = 0;
-        let fft_buckets = 2048*4;
+        let fft_buckets = 1024;
         let mut samples = 0usize;
         let mut last_sent_time = 0usize;
         thread::spawn(move || {
@@ -139,7 +176,13 @@ fn meter_fft(
                         let mut fft_out = fft.transform_to_vec(buf);
                         //  only use first half
                         fft_out.split_off(fft_buckets / 2usize);
-                        let fft_norm = Vec::from_iter(fft_out.iter().map(|c| (c.r * c.r + c.i * c.i).sqrt()));
+                        let fft_norm = Vec::from_iter(fft_out.iter().map(|c| (c.r * c.r + c.i * c.i).sqrt() * 1f32 / (fft_buckets as f32).sqrt()));
+                        let peaks = find_peaks(&fft_norm).len();
+                        if chan_index == 0 {
+                            let mut display_buckets = display_buckets.lock().unwrap();
+                            display_buckets.clear();
+                            display_buckets.push_all(&fft_norm[..]);
+                        }
                         let dissonance = dissonance(&fft_norm);
                         let centroid = pitch_centroid(&fft_norm);
                         if samples > last_sent_time + osc_interval * (num_channels as usize) {
@@ -157,10 +200,15 @@ fn meter_fft(
                                             addr : format!("/opera/meter/{}/track{}/dissonance", osc_prefix, chan_index).to_string(),
                                             args : vec!(OscFloat(dissonance))
                                         },
+                                        OscMessage{
+                                            addr : format!("/opera/meter/{}/track{}/numPeaks", osc_prefix, chan_index).to_string(),
+                                            args : vec!(OscInt(peaks as i32))
+                                        },
                                         )
                                 });
                         }
-                        buf.truncate(fft_buckets * 7 / 8 as usize);
+                        //  sliding 1/8 window
+                        buf.drain(..fft_buckets * 7/8);
                     }
 
                     chan_index = (chan_index + 1) % num_channels;
@@ -275,7 +323,12 @@ fn main() {
          Err(e) => { panic!(e); }
      }
      let sender_arc = Arc::new(Mutex::new(sender));
+     let fft_magnitudes = Arc::new(Mutex::new(vec!()));
      meter_rms(active_channels, c_rms, p_rms, sender_arc.clone(), String::from(meter_id));
-     meter_fft(active_channels, c_fft, sender_arc.clone(), String::from(meter_id));
-     setup_stream(frames_per_buffer as u16, active_channels, total_channels, p_pa);
+     meter_fft(active_channels, c_fft, sender_arc.clone(), String::from(meter_id), fft_magnitudes.clone());
+     thread::spawn(move || setup_stream(frames_per_buffer as u16, active_channels, total_channels, p_pa));
+     //display::init(fft_magnitudes);
+     loop {
+        thread::sleep_ms(500);
+     }
 }
