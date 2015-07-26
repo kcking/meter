@@ -36,7 +36,7 @@ impl App {
             return;
         }
 
-        let N = f64::min(fft_magnitudes.len() as f64, 1024.0);
+        let N = f64::min(fft_magnitudes.len() as f64, 2.0*1024.0);
 
         self.gl.draw(args.viewport(), |c, gl| {
             let w = args.width;
@@ -54,7 +54,7 @@ impl App {
                 }
                 rectangle(
                     WHITE,
-                    [i as f64 * side_length, 0.0, side_length, *fft_mag as f64 * h as f64 * 10.0],
+                    [i as f64 * side_length, 0.0, side_length, *fft_mag as f64 * h as f64 / 10.0],
                     c.transform,
                     gl);
                 i += 1;
