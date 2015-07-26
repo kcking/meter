@@ -36,10 +36,12 @@ impl App {
             return;
         }
 
+        let N = f64::min(fft_magnitudes.len() as f64, 1024.0);
+
         self.gl.draw(args.viewport(), |c, gl| {
             let w = args.width;
             let h = args.height;
-            let side_length = w as f64 / fft_magnitudes.len() as f64;
+            let side_length = w as f64 / N;
 
             // Clear the screen.
             clear(BLUE, gl);
@@ -47,6 +49,9 @@ impl App {
             // Draw a box rotating around the middle of the screen.
             let mut i = 0;
             for fft_mag in fft_magnitudes.iter() {
+                if i as f64 >= N {
+                    break;
+                }
                 rectangle(
                     WHITE,
                     [i as f64 * side_length, 0.0, side_length, *fft_mag as f64 * h as f64 * 10.0],

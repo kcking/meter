@@ -66,31 +66,44 @@ impl PartialEq for IndexedMagnitude {
 }
 extern crate num;
 use num::integer::Integer;
-fn pitch_detect(buckets : &Vec<f32>) -> f32{
+fn pitch_detect(buckets : &Vec<f32>) -> (f32, Vec<f32>) {
     //  gcd of top 5 bands
-    let mut indexed_buckets = vec!();
-    let mut i = 0usize;
+    let mut indexed_buckets : Vec<IndexedMagnitude> = vec!();
+    let mut i = 1usize;
     for bucket in buckets {
-        indexed_buckets.push(IndexedMagnitude{index : i, magnitude: bucket.clone()});
+        indexed_buckets.push(IndexedMagnitude{index : i, magnitude: *bucket});
         i += 1usize;
     }
-    let mut harmonics = indexed_buckets.clone();
+    let mut harmonics : Vec<IndexedMagnitude> = indexed_buckets.clone();
     for indexed_bucket in indexed_buckets.iter() {
-        for i in 1..4 {
-            if indexed_bucket.index / i > 0usize {
-                harmonics[indexed_bucket.index / i].magnitude += indexed_bucket.magnitude;
+        //  collect overtones into fundamental
+        for i in 2..7 {
+            let fund_idx = indexed_bucket.index / i;
+            if (fund_idx as f32 - indexed_bucket.index as f32 / i as f32).abs() > 0.00001 {
+                continue;
+            }
+            harmonics[fund_idx - 1].magnitude *= indexed_bucket.magnitude;
+            if fund_idx == 1 {
+                //  reached first bucket
+                break;
             }
         }
+    }
+    //  ignore top half of buckets
+    harmonics.split_off(buckets.len() * 1 / 4);
+    let mut ordered_harmonics = vec!();
+    for h in &harmonics {
+        ordered_harmonics.push(h.magnitude);
     }
     harmonics.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
     let max_idx = harmonics.pop().unwrap();
     //  convert index to freq
-    let freq = (max_idx.index * Fs) as f32 / buckets.len() as f32;
-    return freq;
+    let freq = (max_idx.index * Fs) as f32 / (buckets.len() as f32 * 8.0 / 3.0);
+    return (freq, ordered_harmonics);
 }
 
-fn idx_to_freq(idx : usize, buckets : usize) -> f32 {
-    (idx * Fs) as f32 / buckets as f32
+fn idx_to_freq(idx : usize, N : usize) -> f32 {
+    (idx * Fs) as f32 / N as f32
 }
 
 fn bkt_to_freq(bkt : &IndexedMagnitude, buckets : usize) -> f32 {
@@ -119,27 +132,37 @@ fn dissonance(buckets : &Vec<f32>) -> f32{
 
 /// Return peaks of the signal considering values above 1/5 of the maximum
 /// Expects a vector of magnitudes
-fn find_peaks(buckets : &Vec<f32>) -> Vec<f32> {
+fn find_peaks(buckets : &Vec<f32>) -> Vec<usize> {
     let mut threshold = 0.0;
     for bucket in buckets.iter() {
         threshold = f32::max(threshold, *bucket);
     }
-    threshold /= 5.0;
+    threshold /= 10.0;
     let mut peaks = vec!();
     let mut buckets = buckets.iter();
     let mut left = buckets.next().unwrap();
     let mut mid = buckets.next().unwrap();
+    let mut idx = 0usize;
     for bucket in buckets {
         if *bucket < threshold {
             continue;
         }
         if left < mid && bucket < mid {
-            peaks.push(*bucket);
+            peaks.push(idx - 1usize);
         }
         left = mid;
         mid = bucket;
+        idx += 1usize;
     }
     peaks
+}
+
+fn first_peak(buckets : &Vec<f32>) -> usize {
+    let peaks = find_peaks(buckets);
+    if peaks.len() >= 1usize {
+        return peaks[0];
+    }
+    0usize
 }
 
 fn pitch_centroid(buckets : &Vec<f32>) -> f32 {
@@ -176,15 +199,17 @@ fn meter_fft(
                         let mut fft_out = fft.transform_to_vec(buf);
                         //  only use first half
                         fft_out.split_off(fft_buckets / 2usize);
-                        let fft_norm = Vec::from_iter(fft_out.iter().map(|c| (c.r * c.r + c.i * c.i).sqrt() * 1f32 / (fft_buckets as f32).sqrt()));
+                        let fft_norm = Vec::from_iter(fft_out.iter().map(|c| (c.r * c.r + c.i * c.i).sqrt()));
                         let peaks = find_peaks(&fft_norm).len();
+                        let dissonance = dissonance(&fft_norm);
+                        let centroid = pitch_centroid(&fft_norm);
+                        let (detected_pitch, ordered_harmonics) = pitch_detect(&fft_norm);
                         if chan_index == 0 {
                             let mut display_buckets = display_buckets.lock().unwrap();
                             display_buckets.clear();
-                            display_buckets.push_all(&fft_norm[..]);
+                            //display_buckets.push_all(&fft_norm[..]);
+                            display_buckets.push_all(&ordered_harmonics[..]);
                         }
-                        let dissonance = dissonance(&fft_norm);
-                        let centroid = pitch_centroid(&fft_norm);
                         if samples > last_sent_time + osc_interval * (num_channels as usize) {
                             last_sent_time = samples;
                             let mut sender = osc_sender.lock().unwrap();
@@ -192,6 +217,10 @@ fn meter_fft(
                                 OscBundle{
                                     time_tag : (0, 1),
                                     conts: vec!(
+                                        OscMessage{
+                                            addr : format!("/opera/meter/{}/track{}/detectedPitch", osc_prefix, chan_index).to_string(),
+                                            args : vec!(OscFloat(detected_pitch))
+                                        },
                                         OscMessage{
                                             addr : format!("/opera/meter/{}/track{}/pitchCentroid", osc_prefix, chan_index).to_string(),
                                             args : vec!(OscFloat(centroid))
@@ -327,7 +356,7 @@ fn main() {
      meter_rms(active_channels, c_rms, p_rms, sender_arc.clone(), String::from(meter_id));
      meter_fft(active_channels, c_fft, sender_arc.clone(), String::from(meter_id), fft_magnitudes.clone());
      thread::spawn(move || setup_stream(frames_per_buffer as u16, active_channels, total_channels, p_pa));
-     //display::init(fft_magnitudes);
+     display::init(fft_magnitudes);
      loop {
         thread::sleep_ms(500);
      }
