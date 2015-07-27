@@ -64,34 +64,25 @@ impl PartialEq for IndexedMagnitude {
         return self.magnitude.eq(&other.magnitude);
     }
 }
+
+fn index_magnitudes(mags : &Vec<f32>) -> Vec<IndexedMagnitude> {
+    let mut indexed = vec!();
+    let mut i = 0usize;
+    for mag in mags {
+        indexed.push(IndexedMagnitude{index : i, magnitude : *mag});
+        i += 1usize;
+    }
+    indexed
+}
 extern crate num;
 use num::integer::Integer;
-fn pitch_detect(buckets : &Vec<f32>) -> f32 {
-    let mut indexed_buckets = vec!();
+fn pitch_detect(buckets : &Vec<f32>) -> Option<f32> {
     //  1 indexed
     //  filter to peaks
-    let peaks = find_peaks(buckets);
-    for peak in peaks {
-        indexed_buckets.push(IndexedMagnitude{index : peak + 1usize, magnitude : buckets[peak]});
+    if let Some(peak) = first_peak(&buckets, 1./10.) {
+        return Some((peak.index * Fs) as f32 / (buckets.len() as f32 * 2.0));
     }
-    //  desc sort by magnitude
-    indexed_buckets.sort_by(|a, b| b.partial_cmp(a).unwrap_or(Ordering::Equal));
-    if indexed_buckets.len() < 3 {
-        return 0f32;
-    }
-    let mut indexed_buckets = indexed_buckets.iter();
-    let mut idx = indexed_buckets.next().unwrap().index;
-    let mut i = 1usize;
-    for indexed_bucket in indexed_buckets {
-        idx = usize::gcd(&idx, &indexed_bucket.index);
-        i += 1usize;
-        if i >= 3usize {
-            break;
-        }
-    }
-
-    let freq = (idx * Fs) as f32 / (buckets.len() as f32 * 2.0);
-    freq
+    None
 }
 
 fn idx_to_freq(idx : usize, N : usize) -> f32 {
@@ -103,57 +94,72 @@ fn bkt_to_freq(bkt : &IndexedMagnitude, buckets : usize) -> f32 {
 }
 
 fn dissonance(buckets : &Vec<f32>) -> f32{
-    let mut indexed_buckets = vec!();
-    let mut i = 0usize;
-    for bucket in buckets {
-        indexed_buckets.push(IndexedMagnitude{index : i, magnitude: bucket.clone()});
-        i += 1usize;
-    }
-    //  desc sort by magnitude
-    indexed_buckets.sort_by(|a, b| b.partial_cmp(a).unwrap_or(Ordering::Equal));
-    let f0 = bkt_to_freq(&indexed_buckets[0], buckets.len() * 2);
-    let f1 = bkt_to_freq(&indexed_buckets[1], buckets.len() * 2);
-    let f2 = bkt_to_freq(&indexed_buckets[2], buckets.len() * 2);
-    let mut d1 = f1 / f0;
-    let mut d2 = f2 / f0;
-    //println!("{} {} {}", f0, f1, f2);
-    d1 = (d1 - d1.floor() - 0.5f32) * 2f32;
-    d2 = (d2 - d2.floor() - 0.5f32) * 2f32;
-    (d1 - d2).abs()
+    let peaks = find_peaks(&index_magnitudes(buckets), 0.1);
+    let second_order_peaks : Vec<IndexedMagnitude> = find_peaks(&peaks, 0.1);
+    return second_order_peaks.len() as f32;
 }
 
-/// Return peaks of the signal considering values above 1/5 of the maximum
+fn norm(v : &Vec<f32>) -> Vec<f32> {
+    let mut mag = 0f32;
+    for e in v {
+        mag += *e * *e;
+    }
+    mag = mag.sqrt();
+    let mut norm_v = vec!();
+    for e in v {
+        norm_v.push(*e / mag);
+    }
+    norm_v
+}
+
+fn normalized_dot(v1 : &Vec<f32>, v2 : &Vec<f32>) -> f32 {
+    if v1.len() != v2.len() {
+        return 0f32;
+    }
+    let mut dot = 0f32;
+    let v1 = norm(v1);
+    let v2 = norm(v2);
+    for (e1, e2) in v1.iter().zip(v2.iter()) {
+        dot += e1 * e2;
+    }
+    dot
+}
+
+/// Return peaks of the signal considering values above threshold * the maximum
 /// Expects a vector of magnitudes
-fn find_peaks(buckets : &Vec<f32>) -> Vec<usize> {
+fn find_peaks(buckets : &Vec<IndexedMagnitude>, threshold_coef : f32) -> Vec<IndexedMagnitude> {
     let mut threshold = 0.0;
     for bucket in buckets.iter() {
-        threshold = f32::max(threshold, *bucket);
+        threshold = f32::max(threshold, bucket.magnitude);
     }
-    threshold /= 10.0;
+    threshold *= threshold_coef;
     let mut peaks = vec!();
     let mut buckets = buckets.iter();
-    let mut left = *buckets.next().unwrap();
-    let mut mid = *buckets.next().unwrap();
-    let mut idx = 2usize;
+    let mut high : Option<IndexedMagnitude> = None;
     for bucket in buckets {
-        if left < mid && *bucket < mid {
-            if *bucket >= threshold {
-                peaks.push(idx - 1usize);
+        if let Some(high_val) = high.clone() {
+           if bucket.magnitude > high_val.magnitude {
+               high = Some(bucket.clone());
+           }
+        } else {
+            high = Some(bucket.clone());
+        }
+        if let Some(high_val) = high.clone() {
+            if high_val.magnitude - bucket.magnitude > threshold {
+                peaks.push(high_val.clone());
+                high = None;
             }
         }
-        left = mid;
-        mid = *bucket;
-        idx += 1usize;
     }
     peaks
 }
 
-fn first_peak(buckets : &Vec<f32>) -> usize {
-    let peaks = find_peaks(buckets);
+fn first_peak(buckets : &Vec<f32>, threshold_coef : f32) -> Option<IndexedMagnitude> {
+    let peaks = find_peaks(&index_magnitudes(buckets), threshold_coef);
     if peaks.len() >= 1usize {
-        return peaks[0];
+        return Some(peaks[0].clone());
     }
-    0usize
+    None
 }
 
 fn pitch_centroid(buckets : &Vec<f32>) -> f32 {
@@ -167,6 +173,21 @@ fn pitch_centroid(buckets : &Vec<f32>) -> f32 {
     centroid
 }
 
+fn zero_padded_fft_norm(buf : &Vec<kiss_fft_cpx>, zeros : usize) -> Vec<f32>{
+    let mut zero_vec = vec!();
+    for i in 0..zeros {
+        zero_vec.push(kiss_fft_cpx{r : 0f32, i : 0f32});
+    }
+    let mut fft_buf = vec!();
+    fft_buf.push_all(&zero_vec[..]);
+    fft_buf.push_all(&buf[..]);
+    let mut fft = KissFFT::new(buf.len() + zeros, false);
+    let mut fft_out = fft.transform_norm_to_vec(&fft_buf[..]);
+    let N = fft_out.len();
+    fft_out.split_off(N / 2usize);
+    Vec::from_iter(fft_out.iter().map(|c| (c.r * c.r + c.i * c.i).sqrt()))
+}
+
 use std::iter::FromIterator;
 fn meter_fft(
     num_channels : i32,
@@ -176,9 +197,10 @@ fn meter_fft(
     display_buckets : Arc<Mutex<Vec<f32>>>,
     ) -> JoinHandle<()> {
         let mut bufs_by_channel = HashMap::new();
+        let mut last_fft_by_channel = HashMap::new();
         let mut chan_index = 0;
-        let fft_buckets = 1024;
-        let zero_pad_coef = 8;
+        let fft_buckets = 8192/4;
+        let zero_pad_coef = 8192 / fft_buckets;
         let N = fft_buckets * zero_pad_coef;
         let mut samples = 0usize;
         let mut last_sent_time = 0usize;
@@ -188,21 +210,9 @@ fn meter_fft(
                     let mut buf = bufs_by_channel.entry(chan_index).or_insert(vec!());
                     buf.push(kiss_fft_cpx{r : s, i : 0f32});
                     if buf.len() == fft_buckets {
-                        let mut zeros = vec!();
-                        for i in 0..(N - fft_buckets) {
-                            zeros.push(kiss_fft_cpx{r : 0f32, i : 0f32});
-                        }
-                        let mut fft_buf = vec!();
-                        fft_buf.push_all(&zeros[..]);
-                        fft_buf.push_all(buf);
-                        let mut fft = KissFFT::new(N, false);
-                        let mut fft_out = fft.transform_to_vec(&fft_buf[..]);
-                        //  only use first half
-                        fft_out.split_off(N / 2usize);
-                        let fft_norm = Vec::from_iter(fft_out.iter().map(|c| (c.r * c.r + c.i * c.i).sqrt()));
-                        let peaks = find_peaks(&fft_norm).len();
-                        let dissonance = dissonance(&fft_norm);
-                        let centroid = pitch_centroid(&fft_norm);
+                        let fft_norm = zero_padded_fft_norm(buf, N - fft_buckets);
+                        let peaks = find_peaks(&index_magnitudes(&fft_norm), 1./12.).len();
+                        let mut dissonance = 0f32;
                         let detected_pitch = pitch_detect(&fft_norm);
                         if chan_index == 0 {
                             let mut display_buckets = display_buckets.lock().unwrap();
@@ -211,33 +221,41 @@ fn meter_fft(
                             //display_buckets.push_all(&ordered_harmonics[..]);
                         }
                         if samples > last_sent_time + osc_interval * (num_channels as usize) {
+                            if let Some(last_fft) = last_fft_by_channel.get(&chan_index) {
+                                let alpha = 1./300.;
+                                dissonance = 1f32 - normalized_dot(&fft_norm, last_fft);
+                            }
                             last_sent_time = samples;
                             let mut sender = osc_sender.lock().unwrap();
+                            let mut msgs = vec!();
+                            if let Some(detected_pitch) = detected_pitch {
+                                msgs.push(
+                                    OscMessage{
+                                        addr : format!("/opera/meter/{}/track{}/detectedPitch", osc_prefix, chan_index).to_string(),
+                                        args : vec!(OscFloat(detected_pitch))
+                                    }
+                                    );
+                            }
+                            msgs.push(
+                                OscMessage{
+                                    addr : format!("/opera/meter/{}/track{}/dissonance", osc_prefix, chan_index).to_string(),
+                                    args : vec!(OscFloat(dissonance))
+                                },
+                                );
+                            msgs.push(
+                                OscMessage{
+                                    addr : format!("/opera/meter/{}/track{}/numPeaks", osc_prefix, chan_index).to_string(),
+                                    args : vec!(OscInt(peaks as i32))
+                                }
+                                );
                             sender.send(
                                 OscBundle{
                                     time_tag : (0, 1),
-                                    conts: vec!(
-                                        OscMessage{
-                                            addr : format!("/opera/meter/{}/track{}/detectedPitch", osc_prefix, chan_index).to_string(),
-                                            args : vec!(OscFloat(detected_pitch))
-                                        },
-                                        OscMessage{
-                                            addr : format!("/opera/meter/{}/track{}/pitchCentroid", osc_prefix, chan_index).to_string(),
-                                            args : vec!(OscFloat(centroid))
-                                        },
-                                        OscMessage{
-                                            addr : format!("/opera/meter/{}/track{}/dissonance", osc_prefix, chan_index).to_string(),
-                                            args : vec!(OscFloat(dissonance))
-                                        },
-                                        OscMessage{
-                                            addr : format!("/opera/meter/{}/track{}/numPeaks", osc_prefix, chan_index).to_string(),
-                                            args : vec!(OscInt(peaks as i32))
-                                        },
-                                        )
+                                    conts: msgs
                                 });
                         }
-                        //  sliding 1/8 window
-                        buf.drain(..fft_buckets * 7/8);
+                        last_fft_by_channel.insert(chan_index, fft_norm);
+                        buf.clear();
                     }
 
                     chan_index = (chan_index + 1) % num_channels;
