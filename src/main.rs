@@ -74,12 +74,19 @@ fn index_magnitudes(mags : &Vec<f32>) -> Vec<IndexedMagnitude> {
     }
     indexed
 }
+fn unindex_magnitudes(mags : &Vec<IndexedMagnitude>) -> Vec<f32> {
+    let mut unindexed = vec!();
+    for mag in mags {
+        unindexed.push(mag.magnitude);
+    }
+    unindexed
+}
 extern crate num;
 use num::integer::Integer;
 fn pitch_detect(buckets : &Vec<f32>) -> Option<f32> {
     //  1 indexed
     //  filter to peaks
-    if let Some(peak) = first_peak(&buckets, 1./10.) {
+    if let Some(peak) = first_peak(&index_magnitudes(buckets), 1./10.) {
         return Some((peak.index * Fs) as f32 / (buckets.len() as f32 * 2.0));
     }
     None
@@ -154,12 +161,79 @@ fn find_peaks(buckets : &Vec<IndexedMagnitude>, threshold_coef : f32) -> Vec<Ind
     peaks
 }
 
-fn first_peak(buckets : &Vec<f32>, threshold_coef : f32) -> Option<IndexedMagnitude> {
-    let peaks = find_peaks(&index_magnitudes(buckets), threshold_coef);
+fn first_peak(buckets : &Vec<IndexedMagnitude>, threshold_coef : f32) -> Option<IndexedMagnitude> {
+    let peaks = find_peaks(buckets, threshold_coef);
     if peaks.len() >= 1usize {
         return Some(peaks[0].clone());
     }
     None
+}
+
+const PEAK_THRESHOLD : f32 = 0.01;
+fn zero_peak(buckets : &mut Vec<IndexedMagnitude>, idx : usize) {
+    //  backwards
+    if idx > 0 {
+        let mut low = buckets[idx].clone();
+        let mut low_idx = idx - 1;
+        while low_idx >= 0 {
+            if buckets[low_idx].magnitude < low.magnitude {
+                low = buckets[low_idx].clone();
+            }
+            if buckets[low_idx].magnitude - low.magnitude > PEAK_THRESHOLD {
+                //  end of peak
+                buckets[low_idx].magnitude = 0.;
+                break;
+            }
+            buckets[low_idx].magnitude = 0.;
+            if low_idx == 0 {
+                break;
+            }
+            low_idx -= 1;
+        }
+    }
+
+    //  forwards
+    if idx < buckets.len() - 1 {
+        let mut low = buckets[idx].clone();
+        let mut low_idx = idx + 1;
+        while low_idx < buckets.len() {
+            if buckets[low_idx].magnitude < low.magnitude {
+                low = buckets[low_idx].clone();
+            }
+            if buckets[low_idx].magnitude - low.magnitude > PEAK_THRESHOLD {
+                //  end of peak
+                buckets[low_idx].magnitude = 0.;
+                break;
+            }
+            buckets[low_idx].magnitude = 0.;
+            if low_idx == buckets.len() - 1 {
+                break;
+            }
+            low_idx += 1;
+        }
+    }
+
+    buckets[idx].magnitude = 0.;
+}
+
+//  zeros all of the peaks located at each integer multiple of 'idx'
+fn zero_harmonics(buckets : &mut Vec<IndexedMagnitude>, idx : usize) {
+    let mut h_idx = idx + 1;
+    for i in 1..(buckets.len() / h_idx) {
+        zero_peak(buckets, h_idx * i);
+    }
+}
+
+fn remove_harmonics(buckets : &Vec<IndexedMagnitude>) -> Vec<IndexedMagnitude> {
+    let mut buckets = buckets.clone();
+    for i in 0..1 {
+        if let Some(peak) = first_peak(&find_peaks(&buckets, 1./3.), 1./3.) {
+            zero_harmonics(&mut buckets, peak.index);
+        } else {
+            break;
+        }
+    }
+    buckets
 }
 
 fn pitch_centroid(buckets : &Vec<f32>) -> f32 {
@@ -217,7 +291,9 @@ fn meter_fft(
                         if chan_index == 0 {
                             let mut display_buckets = display_buckets.lock().unwrap();
                             display_buckets.clear();
-                            display_buckets.push_all(&fft_norm[..]);
+                            let removed_first = remove_harmonics(&mut index_magnitudes(&fft_norm));
+                            display_buckets.push_all(&unindex_magnitudes(&removed_first)[..]);
+                            //display_buckets.push_all(&fft_norm[..]);
                             //display_buckets.push_all(&ordered_harmonics[..]);
                         }
                         if samples > last_sent_time + osc_interval * (num_channels as usize) {
