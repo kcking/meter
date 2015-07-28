@@ -341,13 +341,6 @@ fn pitch_centroid(buckets : &Vec<f32>) -> f32 {
     centroid
 }
 
-fn compute_harmonicity(buckets : &Vec<f32>) -> f32 {
-    let total_energy : f32 = buckets.iter().sum();
-    let indexed_buckets = index_magnitudes(buckets);
-    let filtered_buckets = remove_harmonics(&indexed_buckets, 7);
-    let inharmonic_energy : f32 = unindex_magnitudes(&filtered_buckets).iter().sum();
-    return 1. - inharmonic_energy / total_energy;
-}
 
 fn zero_padded_fft_norm(buf : &Vec<kiss_fft_cpx>, zeros : usize) -> Vec<f32>{
     let mut zero_vec = vec!();
@@ -387,9 +380,9 @@ fn meter_fft(
                     buf.push(kiss_fft_cpx{r : s, i : 0f32});
                     if buf.len() == fft_buckets {
                         let fft_norm = zero_padded_fft_norm(buf, N - fft_buckets);
-                        let peaks = find_peaks(&index_magnitudes(&fft_norm), 1./12.).0.len();
+                        let (peaks, valleys) = find_peaks(&index_magnitudes(&fft_norm), 1./1000.);
+                        let (mtns, _) = find_peaks(&peaks, 1./10.);
                         let detected_pitch = pitch_detect(&fft_norm);
-                        let harmonicity = compute_harmonicity(&fft_norm);
                         if chan_index == 0 {
                             let mut display_buckets = display_buckets.lock().unwrap();
                             display_buckets.clear();
@@ -397,8 +390,6 @@ fn meter_fft(
                             display_buckets.push_all(&unindex_magnitudes(&removed_first)[..]);
                             let YELLOW = [243./255., 232./255., 51./255., 0.5];
                             let RED = [239./255., 101./255., 68./255., 0.5];
-                            let (peaks, valleys) = find_peaks(&index_magnitudes(&fft_norm), 1./1000.);
-                            let (mtns, _) = find_peaks(&peaks, 1./50.);
                             let mut display_lines = display_lines.lock().unwrap();
                             display_lines.clear();
                             for mtn in mtns.iter() {
@@ -426,14 +417,8 @@ fn meter_fft(
                             }
                             msgs.push(
                                 OscMessage{
-                                    addr : format!("/opera/meter/{}/track{}/harmonicity", osc_prefix, chan_index).to_string(),
-                                    args : vec!(OscFloat(harmonicity))
-                                },
-                                );
-                            msgs.push(
-                                OscMessage{
                                     addr : format!("/opera/meter/{}/track{}/numPeaks", osc_prefix, chan_index).to_string(),
-                                    args : vec!(OscInt(peaks as i32))
+                                    args : vec!(OscInt(mtns.len() as i32))
                                 }
                                 );
                             sender.send(
