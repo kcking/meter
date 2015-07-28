@@ -55,7 +55,7 @@ impl App {
                 }
                 rectangle(
                     WHITE,
-                    [i as f64 * side_length, 0.0, side_length, *fft_mag as f64 * h as f64 /2.],
+                    [i as f64 * side_length, (h - 1) as f64, side_length, -(*fft_mag as f64 * h as f64 /2.)],
                     c.transform,
                     gl);
                 i += 1;

@@ -100,10 +100,21 @@ fn bkt_to_freq(bkt : &IndexedMagnitude, buckets : usize) -> f32 {
     idx_to_freq(bkt.index, buckets)
 }
 
-fn dissonance(buckets : &Vec<f32>) -> f32{
-    let (peaks, _) = find_peaks(&index_magnitudes(buckets), 0.1);
-    let (second_order_peaks, _) = find_peaks(&peaks, 0.1);
-    return second_order_peaks.len() as f32;
+fn compute_dissonance(buckets : &Vec<f32>) -> f32{
+    let (mut peaks, _) = find_peaks(&find_peaks(&index_magnitudes(buckets), 1./12.).0, 1./12.);
+    peaks.sort_by(|a, b| b.partial_cmp(a).unwrap_or(Ordering::Equal));
+    if peaks.len() < 3 {
+        return 0.;
+    }
+    let f1 = bkt_to_freq(&peaks[0], buckets.len() * 2);
+    let f2 = bkt_to_freq(&peaks[1], buckets.len() * 2);
+    let f3 = bkt_to_freq(&peaks[2], buckets.len() * 2);
+    let d1 = f2 / f1;
+    let d2 = f3 / f1;
+
+    let fd1 = (d1 - d1.floor() - 0.5).abs() * 2.;
+    let fd2 = (d2 - d2.floor() - 0.5).abs() * 2.;
+    return (d1 - d2).abs();
 }
 
 fn norm(v : &Vec<f32>) -> Vec<f32> {
@@ -383,13 +394,13 @@ fn meter_fft(
                         let (peaks, valleys) = find_peaks(&index_magnitudes(&fft_norm), 1./1000.);
                         let (mtns, _) = find_peaks(&peaks, 1./10.);
                         let detected_pitch = pitch_detect(&fft_norm);
+                        let dissonance = compute_dissonance(&fft_norm);
                         if chan_index == 0 {
                             let mut display_buckets = display_buckets.lock().unwrap();
                             display_buckets.clear();
-                            let removed_first = remove_harmonics(&mut index_magnitudes(&fft_norm), 7);
-                            display_buckets.push_all(&unindex_magnitudes(&removed_first)[..]);
+                            display_buckets.push_all(&fft_norm[..]);
                             let YELLOW = [243./255., 232./255., 51./255., 0.5];
-                            let RED = [239./255., 101./255., 68./255., 0.5];
+                            let RED = [239./255., 101./255., 68./255., 1.];
                             let mut display_lines = display_lines.lock().unwrap();
                             display_lines.clear();
                             for mtn in mtns.iter() {
@@ -397,7 +408,7 @@ fn meter_fft(
                             }
                             for valley in valleys.iter() {
                                 if let &Some(ref valley) = valley {
-                                    display_lines.push((YELLOW.clone(), valley.index.clone()));
+                                    //display_lines.push((YELLOW.clone(), valley.index.clone()));
                                 }
                             }
                             //display_buckets.push_all(&fft_norm[..]);
@@ -419,6 +430,12 @@ fn meter_fft(
                                 OscMessage{
                                     addr : format!("/opera/meter/{}/track{}/numPeaks", osc_prefix, chan_index).to_string(),
                                     args : vec!(OscInt(mtns.len() as i32))
+                                }
+                                );
+                            msgs.push(
+                                OscMessage{
+                                    addr : format!("/opera/meter/{}/track{}/dissonance", osc_prefix, chan_index).to_string(),
+                                    args : vec!(OscFloat(dissonance))
                                 }
                                 );
                             sender.send(
@@ -529,6 +546,10 @@ fn main() {
      let send_ip = args[4].as_str();
      let send_port = u16::from_str_radix(args[5].as_str(), 10).unwrap();
      let meter_id = args[6].as_str();
+     let mut show_graphics = false;
+     if args.len() >= 8 {
+        show_graphics = bool::from_str(args[7].as_str()).unwrap();
+     }
 
      let (p_pa, c_rms) = bounded_spsc_queue::make(16 * frames_per_buffer * (total_channels as usize));
      let (p_rms, c_fft) = bounded_spsc_queue::make(16 * frames_per_buffer * (total_channels as usize));
@@ -547,7 +568,9 @@ fn main() {
      meter_rms(active_channels, c_rms, p_rms, sender_arc.clone(), String::from(meter_id));
      meter_fft(active_channels, c_fft, sender_arc.clone(), String::from(meter_id), fft_magnitudes.clone(), vertical_lines.clone());
      thread::spawn(move || setup_stream(frames_per_buffer as u16, active_channels, total_channels, p_pa));
-     //display::init(fft_magnitudes, vertical_lines);
+     if show_graphics {
+         display::init(fft_magnitudes, vertical_lines);
+     }
      loop {
         thread::sleep_ms(500);
      }
