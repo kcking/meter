@@ -4,6 +4,7 @@ version = "0.1.0"
 dependencies = [
  "bounded-spsc-queue 0.0.1 (git+https://github.com/kcking/bounded-spsc-queue.git)",
  "getopts 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
+ "itertools 0.3.23 (registry+https://github.com/rust-lang/crates.io-index)",
  "kissfft 0.0.8 (git+https://github.com/kcking/rust-kissfft.git)",
  "num 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "piston 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -273,6 +274,11 @@ dependencies = [
 [[package]]
 name = "interpolation"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "itertools"
+version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]

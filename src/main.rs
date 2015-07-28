@@ -47,7 +47,7 @@ type ChannelBuffers = Arc<Mutex<HashMap<i32, Vec<f32>>>>;
 const Fs : usize = 44100usize;
 const osc_interval : usize = Fs / 30usize;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct IndexedMagnitude {
     index : usize,
     magnitude : f32
@@ -101,8 +101,8 @@ fn bkt_to_freq(bkt : &IndexedMagnitude, buckets : usize) -> f32 {
 }
 
 fn dissonance(buckets : &Vec<f32>) -> f32{
-    let peaks = find_peaks(&index_magnitudes(buckets), 0.1);
-    let second_order_peaks : Vec<IndexedMagnitude> = find_peaks(&peaks, 0.1);
+    let (peaks, _) = find_peaks(&index_magnitudes(buckets), 0.1);
+    let (second_order_peaks, _) = find_peaks(&peaks, 0.1);
     return second_order_peaks.len() as f32;
 }
 
@@ -134,35 +134,54 @@ fn normalized_dot(v1 : &Vec<f32>, v2 : &Vec<f32>) -> f32 {
 
 /// Return peaks of the signal considering values above threshold * the maximum
 /// Expects a vector of magnitudes
-fn find_peaks(buckets : &Vec<IndexedMagnitude>, threshold_coef : f32) -> Vec<IndexedMagnitude> {
+/// Also returns the valleys
+fn find_peaks(buckets : &Vec<IndexedMagnitude>,
+              threshold_coef : f32) -> (Vec<IndexedMagnitude>,
+                                        Vec<Option<IndexedMagnitude>>) {
     let mut threshold = 0.0;
     for bucket in buckets.iter() {
         threshold = f32::max(threshold, bucket.magnitude);
     }
     threshold *= threshold_coef;
     let mut peaks = vec!();
+    let mut valleys = vec!();
     let mut buckets = buckets.iter();
     let mut high : Option<IndexedMagnitude> = None;
+    let mut low : Option<IndexedMagnitude> = None;
+    let mut pre_peak_low : Option<IndexedMagnitude> = None;
     for bucket in buckets {
+        if let Some(low_val) = low.clone() {
+           if bucket.magnitude < low_val.magnitude {
+               low = Some(bucket.clone());
+           }
+        } else {
+            low = Some(bucket.clone());
+        }
         if let Some(high_val) = high.clone() {
            if bucket.magnitude > high_val.magnitude {
                high = Some(bucket.clone());
+               pre_peak_low = low.clone();
            }
         } else {
             high = Some(bucket.clone());
+            pre_peak_low = low.clone();
         }
         if let Some(high_val) = high.clone() {
-            if high_val.magnitude - bucket.magnitude > threshold {
-                peaks.push(high_val.clone());
-                high = None;
+            if high_val.magnitude - bucket.magnitude > threshold / 2.
+                && bucket.magnitude - low.clone().unwrap().magnitude > threshold / 2. {
+                    peaks.push(high_val.clone());
+                    valleys.push(pre_peak_low.clone());
+                    high = None;
+                    low = None;
+                    pre_peak_low = None;
             }
         }
     }
-    peaks
+    (peaks, valleys)
 }
 
 fn first_peak(buckets : &Vec<IndexedMagnitude>, threshold_coef : f32) -> Option<IndexedMagnitude> {
-    let peaks = find_peaks(buckets, threshold_coef);
+    let (peaks, _) = find_peaks(buckets, threshold_coef);
     if peaks.len() >= 1usize {
         return Some(peaks[0].clone());
     }
@@ -217,18 +236,93 @@ fn zero_peak(buckets : &mut Vec<IndexedMagnitude>, idx : usize) {
 }
 
 //  zeros all of the peaks located at each integer multiple of 'idx'
-fn zero_harmonics(buckets : &mut Vec<IndexedMagnitude>, idx : usize) {
+fn zero_harmonic(buckets : &mut Vec<IndexedMagnitude>, peaks : &Vec<IndexedMagnitude>, valleys : &Vec<Option<IndexedMagnitude>>, idx : usize) {
     let mut h_idx = idx + 1;
+    //println!("{:?}\n{:?}", peaks, valleys);
     for i in 1..(buckets.len() / h_idx) {
-        zero_peak(buckets, h_idx * i);
+        //  for each harmonic of the idx, erase between the two adjacent valleys
+        //  first, binary search for peak
+        let mut low_valley_idx = 0usize;
+        match valleys.binary_search_by(
+            |i_m| match(i_m) {
+                &Some(ref i_m) => {
+                    return i_m.index.cmp(&(h_idx * i));
+                },
+                &None => {
+                    //  valley at idx 0
+                    return Ordering::Less;
+                }
+            }) {
+            Ok(idx) => {
+                let mut idx = idx;
+                if idx > 0 {
+                    idx -= 1;
+                }
+                low_valley_idx = idx;
+            },
+            Err(idx) => {
+                let mut idx = idx;
+                if idx > 0 {
+                    idx -= 1;
+                }
+                low_valley_idx = idx;
+            }
+        };
+        if low_valley_idx >= valleys.len() - 1 {
+            low_valley_idx = valleys.len() - 1;
+        }
+        let low_idx = match(&valleys[low_valley_idx]) {
+            &Some(ref low_valley) => low_valley.index.clone(),
+            &None => 0usize,
+        };
+        let mut valleys = valleys.iter().skip(low_valley_idx);
+        let low_idx = match(valleys.next()) {
+            Some(valley) => {
+                if let &Some(ref valley) = valley {
+                    //  valley exists
+                    valley.index
+                } else {
+                    //  first valley
+                    0usize
+                }
+            },
+            None =>
+                //  out of bounds
+                return
+        };
+        let high_idx = match(valleys.next()) {
+            Some(&Some(ref valley)) => {
+                valley.index
+            },
+            _ => low_idx
+        };
+        for i in low_idx..high_idx+1 {
+            buckets[i].magnitude = 0.;
+        }
+        //println!("{} {} {}", low_idx, h_idx*i, high_idx);
     }
 }
 
-fn remove_harmonics(buckets : &Vec<IndexedMagnitude>) -> Vec<IndexedMagnitude> {
+#[macro_use]
+extern crate itertools;
+
+use itertools::Itertools;
+
+const LOW_PEAK_ELIMINATION_IDX_THRESHOLD : usize = 10usize;
+fn remove_harmonics(buckets : &Vec<IndexedMagnitude>, num : usize) -> Vec<IndexedMagnitude> {
     let mut buckets = buckets.clone();
-    for i in 0..1 {
-        if let Some(peak) = first_peak(&find_peaks(&buckets, 1./3.), 1./3.) {
-            zero_harmonics(&mut buckets, peak.index);
+    for i in 0..num {
+        //  remove harmonics of biggest mountain on each iteration
+        let (peaks, valleys) = find_peaks(&buckets, 1./1000.);
+        let (mtns, _) = find_peaks(&peaks, 1./50.);
+        if let Some(mtn) = mtns.iter().cloned()
+            .fold1(|l, r|
+                   if l.magnitude > r.magnitude {
+                       l
+                   } else {
+                       r
+                   }) {
+                       zero_harmonic(&mut buckets, &mtns, &valleys, mtn.index);
         } else {
             break;
         }
@@ -245,6 +339,14 @@ fn pitch_centroid(buckets : &Vec<f32>) -> f32 {
         i += 1usize;
     }
     centroid
+}
+
+fn compute_harmonicity(buckets : &Vec<f32>) -> f32 {
+    let total_energy : f32 = buckets.iter().sum();
+    let indexed_buckets = index_magnitudes(buckets);
+    let filtered_buckets = remove_harmonics(&indexed_buckets, 7);
+    let inharmonic_energy : f32 = unindex_magnitudes(&filtered_buckets).iter().sum();
+    return 1. - inharmonic_energy / total_energy;
 }
 
 fn zero_padded_fft_norm(buf : &Vec<kiss_fft_cpx>, zeros : usize) -> Vec<f32>{
@@ -269,9 +371,9 @@ fn meter_fft(
     osc_sender : Arc<Mutex<OscSender>>,
     osc_prefix : String,
     display_buckets : Arc<Mutex<Vec<f32>>>,
+    display_lines : Arc<Mutex<Vec<([f32; 4], usize)>>>,
     ) -> JoinHandle<()> {
         let mut bufs_by_channel = HashMap::new();
-        let mut last_fft_by_channel = HashMap::new();
         let mut chan_index = 0;
         let fft_buckets = 8192/4;
         let zero_pad_coef = 8192 / fft_buckets;
@@ -285,22 +387,32 @@ fn meter_fft(
                     buf.push(kiss_fft_cpx{r : s, i : 0f32});
                     if buf.len() == fft_buckets {
                         let fft_norm = zero_padded_fft_norm(buf, N - fft_buckets);
-                        let peaks = find_peaks(&index_magnitudes(&fft_norm), 1./12.).len();
-                        let mut dissonance = 0f32;
+                        let peaks = find_peaks(&index_magnitudes(&fft_norm), 1./12.).0.len();
                         let detected_pitch = pitch_detect(&fft_norm);
+                        let harmonicity = compute_harmonicity(&fft_norm);
                         if chan_index == 0 {
                             let mut display_buckets = display_buckets.lock().unwrap();
                             display_buckets.clear();
-                            let removed_first = remove_harmonics(&mut index_magnitudes(&fft_norm));
+                            let removed_first = remove_harmonics(&mut index_magnitudes(&fft_norm), 7);
                             display_buckets.push_all(&unindex_magnitudes(&removed_first)[..]);
+                            let YELLOW = [243./255., 232./255., 51./255., 0.5];
+                            let RED = [239./255., 101./255., 68./255., 0.5];
+                            let (peaks, valleys) = find_peaks(&index_magnitudes(&fft_norm), 1./1000.);
+                            let (mtns, _) = find_peaks(&peaks, 1./50.);
+                            let mut display_lines = display_lines.lock().unwrap();
+                            display_lines.clear();
+                            for mtn in mtns.iter() {
+                                display_lines.push((RED.clone(), mtn.index.clone()));
+                            }
+                            for valley in valleys.iter() {
+                                if let &Some(ref valley) = valley {
+                                    display_lines.push((YELLOW.clone(), valley.index.clone()));
+                                }
+                            }
                             //display_buckets.push_all(&fft_norm[..]);
                             //display_buckets.push_all(&ordered_harmonics[..]);
                         }
                         if samples > last_sent_time + osc_interval * (num_channels as usize) {
-                            if let Some(last_fft) = last_fft_by_channel.get(&chan_index) {
-                                let alpha = 1./300.;
-                                dissonance = 1f32 - normalized_dot(&fft_norm, last_fft);
-                            }
                             last_sent_time = samples;
                             let mut sender = osc_sender.lock().unwrap();
                             let mut msgs = vec!();
@@ -314,8 +426,8 @@ fn meter_fft(
                             }
                             msgs.push(
                                 OscMessage{
-                                    addr : format!("/opera/meter/{}/track{}/dissonance", osc_prefix, chan_index).to_string(),
-                                    args : vec!(OscFloat(dissonance))
+                                    addr : format!("/opera/meter/{}/track{}/harmonicity", osc_prefix, chan_index).to_string(),
+                                    args : vec!(OscFloat(harmonicity))
                                 },
                                 );
                             msgs.push(
@@ -330,7 +442,6 @@ fn meter_fft(
                                     conts: msgs
                                 });
                         }
-                        last_fft_by_channel.insert(chan_index, fft_norm);
                         buf.clear();
                     }
 
@@ -447,10 +558,11 @@ fn main() {
      }
      let sender_arc = Arc::new(Mutex::new(sender));
      let fft_magnitudes = Arc::new(Mutex::new(vec!()));
+     let vertical_lines = Arc::new(Mutex::new(vec!()));
      meter_rms(active_channels, c_rms, p_rms, sender_arc.clone(), String::from(meter_id));
-     meter_fft(active_channels, c_fft, sender_arc.clone(), String::from(meter_id), fft_magnitudes.clone());
+     meter_fft(active_channels, c_fft, sender_arc.clone(), String::from(meter_id), fft_magnitudes.clone(), vertical_lines.clone());
      thread::spawn(move || setup_stream(frames_per_buffer as u16, active_channels, total_channels, p_pa));
-     display::init(fft_magnitudes);
+     //display::init(fft_magnitudes, vertical_lines);
      loop {
         thread::sleep_ms(500);
      }

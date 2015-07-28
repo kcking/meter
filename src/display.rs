@@ -10,6 +10,7 @@ pub struct App {
     // OpenGL drawing backend.
     gl: GlGraphics,
     fft_magnitudes: Arc<Mutex<Vec<f32>>>,
+    vertical_lines : Arc<Mutex<Vec<([f32 ; 4], usize)>>>
 }
 
 impl App {
@@ -29,7 +30,7 @@ impl App {
         const WHITE: [f32; 4] = [231.0/255.0, 222.0/255.0, 219.0/255.0, 1.0];
         const BLUE:   [f32; 4] = [18.0/255.0, 87.0/255.0, 150.0/255.0, 1.0];
         let fft_magnitudes = self.fft_magnitudes.lock().unwrap();
-
+        let vertical_lines = self.vertical_lines.lock().unwrap();
         let unit_square = rectangle::square(0.0, 0.0, 1.0);
         let (x, y) = ((args.width / 2) as f64, (args.height / 2) as f64);
         if fft_magnitudes.len() == 0{
@@ -59,6 +60,13 @@ impl App {
                     gl);
                 i += 1;
             }
+            for &(color, vert_idx) in vertical_lines.iter() {
+                rectangle(
+                    color,
+                    [vert_idx as f64 / N as f64 * w as f64, 0.0, 1.0, h as f64],
+                    c.transform,
+                    gl);
+            }
         });
     }
 
@@ -66,7 +74,8 @@ impl App {
     }
 }
 
-pub fn init(fft_magnitudes : Arc<Mutex<Vec<f32>>>) {
+pub fn init(fft_magnitudes : Arc<Mutex<Vec<f32>>>,
+            vertical_lines : Arc<Mutex<Vec<([f32; 4], usize)>>>) {
     let opengl = OpenGL::V3_2;
 
     // Create an Glutin window.
@@ -82,7 +91,8 @@ pub fn init(fft_magnitudes : Arc<Mutex<Vec<f32>>>) {
     // Create a new game and run it.
     let mut app = App {
         gl: GlGraphics::new(opengl),
-        fft_magnitudes: fft_magnitudes
+        fft_magnitudes: fft_magnitudes,
+        vertical_lines : vertical_lines
     };
     for e in window.events() {
         if let Some(r) = e.render_args() {
