@@ -86,7 +86,7 @@ use num::integer::Integer;
 fn pitch_detect(buckets : &Vec<f32>) -> Option<f32> {
     //  1 indexed
     //  filter to peaks
-    if let Some(peak) = first_peak(&index_magnitudes(buckets), 1./10.) {
+    if let Some(peak) = first_peak(&find_peaks(&index_magnitudes(buckets), 1./10.).0, 1./10.) {
         return Some((peak.index * Fs) as f32 / (buckets.len() as f32 * 2.0));
     }
     None
@@ -391,7 +391,7 @@ fn meter_fft(
                     buf.push(kiss_fft_cpx{r : s, i : 0f32});
                     if buf.len() == fft_buckets {
                         let fft_norm = zero_padded_fft_norm(buf, N - fft_buckets);
-                        let (peaks, valleys) = find_peaks(&index_magnitudes(&fft_norm), 1./1000.);
+                        let (peaks, valleys) = find_peaks(&index_magnitudes(&fft_norm), 1./10.);
                         let (mtns, _) = find_peaks(&peaks, 1./10.);
                         let detected_pitch = pitch_detect(&fft_norm);
                         let dissonance = compute_dissonance(&fft_norm);
