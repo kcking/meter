@@ -5,11 +5,17 @@
 # send_port : u16,
 # meter_id : String,
 # show_graphics : bool,
+# sampling_frequency : u32
 
-active_channels = 2
-total_channels = 2
+total_channels = 64
 frames_per_buffer = 512
 send_ip = "127.0.0.1"
 send_port = 7001
 meter_id = "default_meter_id"
 show_graphics = false
+sampling_frequency = 48000
+
+[active_channels]
+0 = "cello"
+1 =  "violin"
+2 = "viola"
