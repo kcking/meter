@@ -1,0 +1,15 @@
+# active_channels : i32,
+# total_channels : i32,
+# frames_per_buffer : usize,
+# send_ip : String,
+# send_port : u16,
+# meter_id : String,
+# show_graphics : bool,
+
+active_channels = 2
+total_channels = 2
+frames_per_buffer = 512
+send_ip = "127.0.0.1"
+send_port = 7001
+meter_id = "default_meter_id"
+show_graphics = false

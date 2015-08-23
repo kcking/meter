@@ -12,7 +12,9 @@ dependencies = [
  "piston2d-opengl_graphics 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "pistoncore-glutin_window 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rust-osc 0.1.0 (git+https://github.com/generalelectrix/rust-osc.git)",
+ "rustc-serialize 0.3.15 (registry+https://github.com/rust-lang/crates.io-index)",
  "sound_stream 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "toml 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -597,6 +599,14 @@ dependencies = [
  "kernel32-sys 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "winapi 0.1.23 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "toml"
+version = "0.1.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "rustc-serialize 0.3.15 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

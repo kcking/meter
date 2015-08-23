@@ -14,6 +14,7 @@ pub struct App {
 }
 
 impl App {
+    #[allow(dead_code)]
     pub fn set_fft_magnitudes(&mut self, mags : &Vec<f32>) {
         let mut app_mags = self.fft_magnitudes.lock().unwrap();
         app_mags.clear();
@@ -31,18 +32,16 @@ impl App {
         const BLUE:   [f32; 4] = [18.0/255.0, 87.0/255.0, 150.0/255.0, 1.0];
         let fft_magnitudes = self.fft_magnitudes.lock().unwrap();
         let vertical_lines = self.vertical_lines.lock().unwrap();
-        let unit_square = rectangle::square(0.0, 0.0, 1.0);
-        let (x, y) = ((args.width / 2) as f64, (args.height / 2) as f64);
         if fft_magnitudes.len() == 0{
             return;
         }
 
-        let N = f64::min(fft_magnitudes.len() as f64, 512.);
+        let n = f64::min(fft_magnitudes.len() as f64, 512.);
 
         self.gl.draw(args.viewport(), |c, gl| {
             let w = args.width;
             let h = args.height;
-            let side_length = w as f64 / N;
+            let side_length = w as f64 / n;
 
             // Clear the screen.
             clear(BLUE, gl);
@@ -50,7 +49,7 @@ impl App {
             // Draw a box rotating around the middle of the screen.
             let mut i = 0;
             for fft_mag in fft_magnitudes.iter() {
-                if i as f64 >= N {
+                if i as f64 >= n {
                     break;
                 }
                 rectangle(
@@ -63,14 +62,14 @@ impl App {
             for &(color, vert_idx) in vertical_lines.iter() {
                 rectangle(
                     color,
-                    [vert_idx as f64 / N as f64 * w as f64, 0.0, 1.0, h as f64],
+                    [vert_idx as f64 / n as f64 * w as f64, 0.0, 1.0, h as f64],
                     c.transform,
                     gl);
             }
         });
     }
 
-    fn update(&mut self, args: &UpdateArgs) {
+    fn update(&mut self, _: &UpdateArgs) {
     }
 }
 
