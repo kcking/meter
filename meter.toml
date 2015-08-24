@@ -8,14 +8,15 @@
 # sampling_frequency : u32
 
 total_channels = 64
-frames_per_buffer = 512
+frames_per_buffer = 16
 send_ip = "127.0.0.1"
 send_port = 7001
 meter_id = "default_meter_id"
 show_graphics = false
 sampling_frequency = 48000
 
+# 0-indexed!
 [active_channels]
 0 = "cello"
 1 =  "violin"
-2 = "viola"
+12 = "nordstrings"

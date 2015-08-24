@@ -7,7 +7,6 @@ use osc::osc_data::OscArg::*;
 use std::thread;
 use std::thread::{JoinHandle};
 use std::sync::{Arc, Mutex};
-use std::collections::{HashMap};
 use itertools::Itertools;
 
 const OSC_PER_SEC : usize = 30usize;
@@ -148,99 +147,105 @@ fn zero_padded_fft_norm(buf : &Vec<kiss_fft_cpx>, zeros : usize) -> Vec<f32>{
 use std::iter::FromIterator;
 pub fn meter_fft(
     sampling_frequency : usize,
-    total_num_channels : i32,
-    active_channels : HashMap<i32, String>,
+    active_channels : Vec<String>,
     c : Consumer<f32>,
     osc_sender : Arc<Mutex<OscSender>>,
     osc_prefix : String,
     display_buckets : Arc<Mutex<Vec<f32>>>,
     display_lines : Arc<Mutex<Vec<([f32; 4], usize)>>>,
     ) -> JoinHandle<()> {
-        let mut bufs_by_channel = HashMap::new();
         let mut chan_index = 0;
-        let fft_buckets = 8192/4;
-        let zero_pad_coef = 8192 / fft_buckets;
+        let fft_buckets = 512;
+        let zero_pad_coef = 8192 / 4 / fft_buckets;
         let n = fft_buckets * zero_pad_coef;
         let mut samples = 0usize;
         let mut last_sent_time = 0usize;
-        let mut pitch_by_chan : HashMap<i32, f32> = HashMap::new();
-        let mut dissonance_by_chan : HashMap<i32, f32> = HashMap::new();
-        let mut num_peaks_by_chan : HashMap<i32, usize> = HashMap::new();
+        let mut bufs_by_channel = Vec::new();
+        let mut pitch_by_chan : Vec<f32> = Vec::new();
+        let mut last_pitch_by_chan : Vec<f32> = Vec::new();
+        let mut dissonance_by_chan : Vec<f32> = Vec::new();
+        let mut num_peaks_by_chan : Vec<usize> = Vec::new();
+        for _ in 0..active_channels.len() {
+            bufs_by_channel.push(vec!());
+            pitch_by_chan.push(0.);
+            last_pitch_by_chan.push(0.);
+            dissonance_by_chan.push(0.);
+            num_peaks_by_chan.push(0);
+        }
         thread::spawn(move || {
             loop {
                 if let Some(s) = c.try_pop() {
-                    if let Some(_) = active_channels.get(&chan_index) {
-                        let mut buf = bufs_by_channel.entry(chan_index).or_insert(vec!());
-                        buf.push(kiss_fft_cpx{r : s, i : 0f32});
-                        if buf.len() == fft_buckets {
-                            let fft_norm = zero_padded_fft_norm(buf, n - fft_buckets);
-                            let (peaks, valleys) = find_peaks(&index_magnitudes(&fft_norm), 1./10.);
-                            let (mtns, _) = find_peaks(&peaks, 1./10.);
-                            num_peaks_by_chan.insert(chan_index, mtns.len());
-                            if let Some(detected_pitch) = pitch_detect(&fft_norm, sampling_frequency) {
-                                pitch_by_chan.insert(chan_index, detected_pitch);
+                    let buf = &mut bufs_by_channel[chan_index];
+                    buf.push(kiss_fft_cpx{r : s, i : 0f32});
+                    if buf.len() == fft_buckets {
+                        let fft_norm = zero_padded_fft_norm(&buf, n - fft_buckets);
+                        let (peaks, valleys) = find_peaks(&index_magnitudes(&fft_norm), 1./10.);
+                        let (mtns, _) = find_peaks(&peaks, 1./10.);
+                        num_peaks_by_chan[chan_index] = mtns.len();
+                        if let Some(detected_pitch) = pitch_detect(&fft_norm, sampling_frequency) {
+                            if detected_pitch == last_pitch_by_chan[chan_index] {
+                                pitch_by_chan[chan_index] = detected_pitch;
                             }
-                            let dissonance = compute_dissonance(&fft_norm, sampling_frequency);
-                            dissonance_by_chan.insert(chan_index, dissonance);
-                            if chan_index == 0 {
-                                let mut display_buckets = display_buckets.lock().unwrap();
-                                display_buckets.clear();
-                                display_buckets.push_all(&fft_norm[..]);
-                                let yellow = [243./255., 232./255., 51./255., 0.5];
-                                let red = [239./255., 101./255., 68./255., 1.];
-                                let mut display_lines = display_lines.lock().unwrap();
-                                display_lines.clear();
-                                for mtn in mtns.iter() {
-                                    display_lines.push((red.clone(), mtn.index.clone()));
-                                }
-                                for valley in valleys.iter() {
-                                    if let &Some(ref valley) = valley {
-                                        display_lines.push((yellow.clone(), valley.index.clone()));
-                                    }
-                                }
-                                display_buckets.push_all(&fft_norm[..]);
-                            }
-                            if samples > last_sent_time + sampling_frequency * active_channels.len() / OSC_PER_SEC {
-                                last_sent_time = samples;
-                                for (chan_index, track_title) in active_channels.iter() {
-                                    let mut sender = osc_sender.lock().unwrap();
-                                    let mut msgs = vec!();
-                                    if let Some(detected_pitch) = pitch_by_chan.get(&chan_index) {
-                                        msgs.push(
-                                            OscMessage{
-                                                addr : format!("/opera/meter/{}/{}/detectedPitch", osc_prefix, track_title).to_string(),
-                                                args : vec!(OscFloat(*detected_pitch))
-                                            }
-                                            );
-                                    }
-                                    if let Some(num_peaks) = num_peaks_by_chan.get(chan_index) {
-                                        msgs.push(
-                                            OscMessage{
-                                                addr : format!("/opera/meter/{}/{}/numPeaks", osc_prefix, track_title).to_string(),
-                                                args : vec!(OscInt(*num_peaks as i32))
-                                            }
-                                            );
-                                    }
-                                    if let Some(dissonance) = dissonance_by_chan.get(chan_index) {
-                                        msgs.push(
-                                            OscMessage{
-                                                addr : format!("/opera/meter/{}/{}/dissonance", osc_prefix, track_title).to_string(),
-                                                args : vec!(OscFloat(*dissonance))
-                                            }
-                                            );
-                                    }
-                                    sender.send(
-                                        OscBundle{
-                                            time_tag : (0, 1),
-                                            conts: msgs
-                                        }).unwrap();
-                                }
-                            }
-                            buf.clear();
+                            last_pitch_by_chan[chan_index] = detected_pitch;
                         }
-                        samples += 1usize;
+                        let dissonance = compute_dissonance(&fft_norm, sampling_frequency);
+                        dissonance_by_chan[chan_index] = dissonance;
+                        if chan_index == 0 {
+                            let mut display_buckets = display_buckets.lock().unwrap();
+                            display_buckets.clear();
+                            display_buckets.push_all(&fft_norm[..]);
+                            let yellow = [243./255., 232./255., 51./255., 0.5];
+                            let red = [239./255., 101./255., 68./255., 1.];
+                            let mut display_lines = display_lines.lock().unwrap();
+                            display_lines.clear();
+                            for mtn in mtns.iter() {
+                                display_lines.push((red.clone(), mtn.index.clone()));
+                            }
+                            for valley in valleys.iter() {
+                                if let &Some(ref valley) = valley {
+                                    display_lines.push((yellow.clone(), valley.index.clone()));
+                                }
+                            }
+                            display_buckets.push_all(&fft_norm[..]);
+                        }
+                        if samples > last_sent_time + sampling_frequency / active_channels.len() / OSC_PER_SEC {
+                            last_sent_time = samples;
+                            for i in 0..active_channels.len() {
+                                let track_title = &active_channels[i];
+                                let mut sender = osc_sender.lock().unwrap();
+                                let mut msgs = vec!();
+                                let detected_pitch = pitch_by_chan[chan_index];
+                                msgs.push(
+                                    OscMessage{
+                                        addr : format!("/opera/meter/{}/{}/detectedPitch", osc_prefix, track_title).to_string(),
+                                        args : vec!(OscFloat(detected_pitch))
+                                    }
+                                    );
+                                let num_peaks = num_peaks_by_chan[chan_index];
+                                msgs.push(
+                                    OscMessage{
+                                        addr : format!("/opera/meter/{}/{}/numPeaks", osc_prefix, track_title).to_string(),
+                                        args : vec!(OscInt(num_peaks as i32))
+                                    }
+                                    );
+                                let dissonance = dissonance_by_chan[chan_index];
+                                msgs.push(
+                                    OscMessage{
+                                        addr : format!("/opera/meter/{}/{}/dissonance", osc_prefix, track_title).to_string(),
+                                        args : vec!(OscFloat(dissonance))
+                                    }
+                                    );
+                                sender.send(
+                                    OscBundle{
+                                        time_tag : (0, 1),
+                                        conts: msgs
+                                    }).unwrap();
+                            }
+                        }
+                        buf.clear();
                     }
-                    chan_index = (chan_index + 1) % total_num_channels;
+                    samples += 1usize;
+                    chan_index = (chan_index + 1) % active_channels.len();
                 } else {
                     thread::sleep_ms(12u32);
                 }
