@@ -42,7 +42,7 @@ fn index_magnitudes(mags : &Vec<f32>) -> Vec<IndexedMagnitude> {
 fn pitch_detect(buckets : &Vec<f32>, fs : usize) -> Option<f32> {
     //  1 indexed
     //  filter to peaks
-    if let Some(peak) = first_peak(&find_peaks(&index_magnitudes(buckets), 1./10.).0, 1./10.) {
+    if let Some(peak) = first_peak(&find_peaks(&index_magnitudes(buckets), 1./10.).0, 1./5.) {
         return Some((peak.index * fs) as f32 / (buckets.len() as f32 * 2.0));
     }
     None
@@ -157,19 +157,19 @@ pub fn meter_fft(
     ) -> JoinHandle<()> {
         let mut chan_index = 0;
         let fft_buckets = 512;
-        let zero_pad_coef = 8192 / 4 / fft_buckets;
+        let zero_pad_coef = 8192 / 2 / fft_buckets;
         let n = fft_buckets * zero_pad_coef;
         let mut samples = 0usize;
         let mut last_sent_time = 0usize;
         let mut bufs_by_channel = Vec::new();
         let mut pitch_by_chan : Vec<f32> = Vec::new();
-        let mut last_pitch_by_chan : Vec<f32> = Vec::new();
+        let mut last_pitch_by_chan : Vec<(f32, usize)> = Vec::new();
         let mut dissonance_by_chan : Vec<f32> = Vec::new();
         let mut num_peaks_by_chan : Vec<usize> = Vec::new();
         for _ in 0..active_channels.len() {
             bufs_by_channel.push(vec!());
             pitch_by_chan.push(0.);
-            last_pitch_by_chan.push(0.);
+            last_pitch_by_chan.push((0., 0));
             dissonance_by_chan.push(0.);
             num_peaks_by_chan.push(0);
         }
@@ -181,13 +181,10 @@ pub fn meter_fft(
                     if buf.len() == fft_buckets {
                         let fft_norm = zero_padded_fft_norm(&buf, n - fft_buckets);
                         let (peaks, valleys) = find_peaks(&index_magnitudes(&fft_norm), 1./10.);
-                        let (mtns, _) = find_peaks(&peaks, 1./10.);
+                        let (mtns, _) = find_peaks(&peaks, 1./5.);
                         num_peaks_by_chan[chan_index] = mtns.len();
                         if let Some(detected_pitch) = pitch_detect(&fft_norm, sampling_frequency) {
-                            if detected_pitch == last_pitch_by_chan[chan_index] {
-                                pitch_by_chan[chan_index] = detected_pitch;
-                            }
-                            last_pitch_by_chan[chan_index] = detected_pitch;
+                            pitch_by_chan[chan_index] = detected_pitch;
                         }
                         let dissonance = compute_dissonance(&fft_norm, sampling_frequency);
                         dissonance_by_chan[chan_index] = dissonance;
@@ -246,7 +243,11 @@ pub fn meter_fft(
 
                             }
                         }
-                        buf.clear();
+                        let drain = buf.len() / 2;
+                        for _ in 0..drain {
+                            buf.remove(0);
+                        }
+                        //buf.clear();
                     }
                     samples += 1usize;
                     chan_index = (chan_index + 1) % active_channels.len();
