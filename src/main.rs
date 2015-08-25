@@ -54,7 +54,6 @@ fn send_rms_osc(
     ) {
 
         let mut sender = sender.lock().unwrap();
-        let mut msg_vec = vec!();
         for i in 0..active_channels.len() {
             let track_title = active_channels[i].clone();
             let rms = rms_list[i];
@@ -63,19 +62,16 @@ fn send_rms_osc(
                 addr : format!("/opera/meter/{}/{}/rms", osc_prefix, track_title).to_string(),
                 args : vec!(OscFloat(rms as f32))
             };
-            msg_vec.push(rms_msg);
+            if let Err(e) = sender.send(rms_msg) {
+                println!("Error sending OSC: {:?}", e);
+            }
             let amp_msg = OscMessage{
                 addr : format!("/opera/meter/{}/{}/maxAmp", osc_prefix, track_title).to_string(),
                 args : vec!(OscFloat(max_amp))
             };
-            msg_vec.push(amp_msg);
-        }
-        let bundle = OscBundle {
-            time_tag : (0, 1),
-            conts : msg_vec
-        };
-        if let Err(e) = sender.send(bundle) {
-            println!("Error sending OSC: {:?}", e);
+            if let Err(e) = sender.send(amp_msg) {
+                println!("Error sending OSC: {:?}", e);
+            }
         }
     }
 

@@ -210,36 +210,37 @@ pub fn meter_fft(
                         }
                         if samples > last_sent_time + sampling_frequency * active_channels.len() / OSC_PER_SEC {
                             last_sent_time = samples;
+                            let mut sender = osc_sender.lock().unwrap();
                             for i in 0..active_channels.len() {
                                 let track_title = &active_channels[i];
-                                let mut msgs = vec!();
                                 let detected_pitch = pitch_by_chan[i];
-                                msgs.push(
+                                let pitch_msg =
                                     OscMessage{
                                         addr : format!("/opera/meter/{}/{}/detectedPitch", osc_prefix, track_title).to_string(),
                                         args : vec!(OscFloat(detected_pitch))
-                                    }
-                                    );
+                                    };
+                                if let Err(e) = sender.send(pitch_msg) {
+                                    println!("Error sending OSC: {:?}", e);
+                                }
                                 let num_peaks = num_peaks_by_chan[i];
-                                msgs.push(
+                                let peaks_msg =
                                     OscMessage{
                                         addr : format!("/opera/meter/{}/{}/numPeaks", osc_prefix, track_title).to_string(),
                                         args : vec!(OscInt(num_peaks as i32))
-                                    }
-                                    );
+                                    };
+                                if let Err(e) = sender.send(peaks_msg) {
+                                    println!("Error sending OSC: {:?}", e);
+                                }
                                 let dissonance = dissonance_by_chan[i];
-                                msgs.push(
+                                let diss_msg =
                                     OscMessage{
                                         addr : format!("/opera/meter/{}/{}/dissonance", osc_prefix, track_title).to_string(),
                                         args : vec!(OscFloat(dissonance))
-                                    }
-                                    );
-                                let mut sender = osc_sender.lock().unwrap();
-                                sender.send(
-                                    OscBundle{
-                                        time_tag : (0, 1),
-                                        conts: msgs
-                                    }).unwrap();
+                                    };
+                                if let Err(e) = sender.send(diss_msg) {
+                                    println!("Error sending OSC: {:?}", e);
+                                }
+
                             }
                         }
                         buf.clear();
