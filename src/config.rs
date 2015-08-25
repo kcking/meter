@@ -12,8 +12,8 @@ pub struct MeterConfig {
     pub send_ip : String,
     pub send_port : u16,
     pub meter_id : String,
-    pub show_graphics : bool,
     pub sampling_frequency : u32,
+    pub display_chan_index : Option<i32>,
 }
 
 pub fn get_config(toml_file : &str) -> MeterConfig {

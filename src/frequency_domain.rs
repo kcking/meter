@@ -153,6 +153,7 @@ pub fn meter_fft(
     osc_prefix : String,
     display_buckets : Arc<Mutex<Vec<f32>>>,
     display_lines : Arc<Mutex<Vec<([f32; 4], usize)>>>,
+    display_chan_index : Option<i32>,
     ) -> JoinHandle<()> {
         let mut chan_index = 0;
         let fft_buckets = 512;
@@ -190,23 +191,25 @@ pub fn meter_fft(
                         }
                         let dissonance = compute_dissonance(&fft_norm, sampling_frequency);
                         dissonance_by_chan[chan_index] = dissonance;
-                        if active_channels[chan_index] == "violaL" {
-                            let mut display_buckets = display_buckets.lock().unwrap();
-                            display_buckets.clear();
-                            display_buckets.push_all(&fft_norm[..]);
-                            let yellow = [243./255., 232./255., 51./255., 0.5];
-                            let red = [239./255., 101./255., 68./255., 1.];
-                            let mut display_lines = display_lines.lock().unwrap();
-                            display_lines.clear();
-                            for mtn in mtns.iter() {
-                                display_lines.push((red.clone(), mtn.index.clone()));
-                            }
-                            for valley in valleys.iter() {
-                                if let &Some(ref valley) = valley {
-                                    display_lines.push((yellow.clone(), valley.index.clone()));
+                        if let Some(display_chan_index) = display_chan_index {
+                            if display_chan_index == chan_index as i32 {
+                                let mut display_buckets = display_buckets.lock().unwrap();
+                                display_buckets.clear();
+                                display_buckets.push_all(&fft_norm[..]);
+                                let yellow = [243./255., 232./255., 51./255., 0.5];
+                                let red = [239./255., 101./255., 68./255., 1.];
+                                let mut display_lines = display_lines.lock().unwrap();
+                                display_lines.clear();
+                                for mtn in mtns.iter() {
+                                    display_lines.push((red.clone(), mtn.index.clone()));
                                 }
+                                for valley in valleys.iter() {
+                                    if let &Some(ref valley) = valley {
+                                        display_lines.push((yellow.clone(), valley.index.clone()));
+                                    }
+                                }
+                                display_buckets.push_all(&fft_norm[..]);
                             }
-                            display_buckets.push_all(&fft_norm[..]);
                         }
                         if samples > last_sent_time + sampling_frequency * active_channels.len() / OSC_PER_SEC {
                             last_sent_time = samples;

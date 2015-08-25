@@ -4,20 +4,19 @@
 # send_ip : String,
 # send_port : u16,
 # meter_id : String,
-# show_graphics : bool,
-# sampling_frequency : u32
+# display_chan_index : i32, // index of channel to show graphics for; no
+# graphics window if omitted
+# sampling_frequency : u32,
 
-total_channels = 64
+total_channels = 2
 frames_per_buffer = 16
 send_ip = "127.0.0.1"
 send_port = 7001
 meter_id = "default_meter_id"
-show_graphics = true
+#display_chan_index = 0
 sampling_frequency = 44100
 
 # 0-indexed!
 [active_channels]
-0 = "cello"
-1 =  "violin"
-4 = "violaL"
-5 = "violaR"
+0 = "L"
+1 =  "R"

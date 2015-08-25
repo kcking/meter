@@ -170,7 +170,7 @@ fn main() {
     let send_ip = config.send_ip.clone();
     let send_port = config.send_port;
     let meter_id = config.meter_id.clone();
-    let show_graphics = config.show_graphics;
+    let display_chan_index = config.display_chan_index;
 
     let (p_pa, c_rms) = bounded_spsc_queue::make(16 * frames_per_buffer * (total_channels as usize));
     let (p_rms, c_fft) = bounded_spsc_queue::make(16 * frames_per_buffer * (total_channels as usize));
@@ -187,10 +187,10 @@ fn main() {
     let fft_magnitudes = Arc::new(Mutex::new(vec!()));
     let vertical_lines = Arc::new(Mutex::new(vec!()));
     meter_rms(config.sampling_frequency.clone(), active_channel_collapsed_titles_vec.clone(), c_rms, p_rms, sender_arc.clone(), meter_id.clone());
-    meter_fft(config.sampling_frequency as usize, active_channel_collapsed_titles_vec.clone(), c_fft, sender_arc.clone(), meter_id, fft_magnitudes.clone(), vertical_lines.clone());
+    meter_fft(config.sampling_frequency as usize, active_channel_collapsed_titles_vec.clone(), c_fft, sender_arc.clone(), meter_id, fft_magnitudes.clone(), vertical_lines.clone(), display_chan_index);
     let config_setup = config.clone();
     thread::spawn(move || setup_stream(config_setup.sampling_frequency, frames_per_buffer as u16, channel_active_vec, total_channels, p_pa));
-    if show_graphics {
+    if let Some(_) = display_chan_index {
         display::init(fft_magnitudes, vertical_lines);
     }
     loop {
