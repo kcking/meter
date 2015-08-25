@@ -216,7 +216,7 @@ pub fn meter_fft(
                                 let detected_pitch = pitch_by_chan[i];
                                 let pitch_msg =
                                     OscMessage{
-                                        addr : format!("/opera/meter/{}/{}/detectedPitch", osc_prefix, track_title).to_string(),
+                                        addr : format!("/{}/{}/detectedPitch", osc_prefix, track_title).to_string(),
                                         args : vec!(OscFloat(detected_pitch))
                                     };
                                 if let Err(e) = sender.send(pitch_msg) {
@@ -225,7 +225,7 @@ pub fn meter_fft(
                                 let num_peaks = num_peaks_by_chan[i];
                                 let peaks_msg =
                                     OscMessage{
-                                        addr : format!("/opera/meter/{}/{}/numPeaks", osc_prefix, track_title).to_string(),
+                                        addr : format!("/{}/{}/numPeaks", osc_prefix, track_title).to_string(),
                                         args : vec!(OscInt(num_peaks as i32))
                                     };
                                 if let Err(e) = sender.send(peaks_msg) {
@@ -234,7 +234,7 @@ pub fn meter_fft(
                                 let dissonance = dissonance_by_chan[i];
                                 let diss_msg =
                                     OscMessage{
-                                        addr : format!("/opera/meter/{}/{}/dissonance", osc_prefix, track_title).to_string(),
+                                        addr : format!("/{}/{}/dissonance", osc_prefix, track_title).to_string(),
                                         args : vec!(OscFloat(dissonance))
                                     };
                                 if let Err(e) = sender.send(diss_msg) {
