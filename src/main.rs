@@ -59,14 +59,14 @@ fn send_rms_osc(
             let rms = rms_list[i];
             let max_amp = max_amp_list[i];
             let rms_msg = OscMessage{
-                addr : format!("/{}/{}/rms", osc_prefix, track_title).to_string(),
+                addr : format!("/{}/{}/rms", track_title, osc_prefix).to_string(),
                 args : vec!(OscFloat(rms as f32))
             };
             if let Err(e) = sender.send(rms_msg) {
                 println!("Error sending OSC: {:?}", e);
             }
             let amp_msg = OscMessage{
-                addr : format!("/{}/{}/maxAmp", osc_prefix, track_title).to_string(),
+                addr : format!("/{}/{}/maxAmp", track_title, osc_prefix).to_string(),
                 args : vec!(OscFloat(max_amp))
             };
             if let Err(e) = sender.send(amp_msg) {
