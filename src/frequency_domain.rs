@@ -190,7 +190,7 @@ pub fn meter_fft(
                         }
                         let dissonance = compute_dissonance(&fft_norm, sampling_frequency);
                         dissonance_by_chan[chan_index] = dissonance;
-                        if chan_index == 0 {
+                        if active_channels[chan_index] == "violaL" {
                             let mut display_buckets = display_buckets.lock().unwrap();
                             display_buckets.clear();
                             display_buckets.push_all(&fft_norm[..]);
@@ -208,33 +208,33 @@ pub fn meter_fft(
                             }
                             display_buckets.push_all(&fft_norm[..]);
                         }
-                        if samples > last_sent_time + sampling_frequency / active_channels.len() / OSC_PER_SEC {
+                        if samples > last_sent_time + sampling_frequency * active_channels.len() / OSC_PER_SEC {
                             last_sent_time = samples;
                             for i in 0..active_channels.len() {
                                 let track_title = &active_channels[i];
-                                let mut sender = osc_sender.lock().unwrap();
                                 let mut msgs = vec!();
-                                let detected_pitch = pitch_by_chan[chan_index];
+                                let detected_pitch = pitch_by_chan[i];
                                 msgs.push(
                                     OscMessage{
                                         addr : format!("/opera/meter/{}/{}/detectedPitch", osc_prefix, track_title).to_string(),
                                         args : vec!(OscFloat(detected_pitch))
                                     }
                                     );
-                                let num_peaks = num_peaks_by_chan[chan_index];
+                                let num_peaks = num_peaks_by_chan[i];
                                 msgs.push(
                                     OscMessage{
                                         addr : format!("/opera/meter/{}/{}/numPeaks", osc_prefix, track_title).to_string(),
                                         args : vec!(OscInt(num_peaks as i32))
                                     }
                                     );
-                                let dissonance = dissonance_by_chan[chan_index];
+                                let dissonance = dissonance_by_chan[i];
                                 msgs.push(
                                     OscMessage{
                                         addr : format!("/opera/meter/{}/{}/dissonance", osc_prefix, track_title).to_string(),
                                         args : vec!(OscFloat(dissonance))
                                     }
                                     );
+                                let mut sender = osc_sender.lock().unwrap();
                                 sender.send(
                                     OscBundle{
                                         time_tag : (0, 1),

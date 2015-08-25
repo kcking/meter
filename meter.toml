@@ -12,11 +12,12 @@ frames_per_buffer = 16
 send_ip = "127.0.0.1"
 send_port = 7001
 meter_id = "default_meter_id"
-show_graphics = false
-sampling_frequency = 48000
+show_graphics = true
+sampling_frequency = 44100
 
 # 0-indexed!
 [active_channels]
 0 = "cello"
 1 =  "violin"
-12 = "nordstrings"
+4 = "violaL"
+5 = "violaR"
