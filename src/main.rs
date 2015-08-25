@@ -149,7 +149,7 @@ use config::*;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let mut config_file = "meter.toml";
+    let mut config_file = "config/default.toml";
     if args.len() > 1 {
         config_file = args[1].as_str();
     }

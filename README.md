@@ -6,8 +6,7 @@
 ##Mac
     https://static.rust-lang.org/dist/2015-08-07/rust-nightly-x86_64-apple-darwin.pkg
 #Run Meter (in meter directory)
-    cargo run <num_active_channels> <num_total_channels> <frames/buffer> <osc sendip> <osc sendport> <unique
-    id for server> <Optional<bool> show graphics> --release
+    cargo run [config_file] --release
 #Features
     - Moving average RMS
 ##Alpha
