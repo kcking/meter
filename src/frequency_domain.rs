@@ -217,6 +217,7 @@ pub fn meter_fft(
                                 let pitch_msg =
                                     OscMessage{
                                         addr : format!("/{}/{}/detectedPitch", track_title, osc_prefix).to_string(),
+                                        args : vec!(OscFloat(detected_pitch))
                                     };
                                 if let Err(e) = sender.send(pitch_msg) {
                                     println!("Error sending OSC: {:?}", e);

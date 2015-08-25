@@ -102,7 +102,7 @@ fn meter_rms(
 
                     let old_max_amp = max_amp_vec[chan_idx].clone();
                     max_amp_vec[chan_idx] = f32::max(old_max_amp, f32::abs(s));
-                    if samples > last_sent_time + (sampling_frequency / active_channels.len() as u32 / OSC_PER_SEC) as usize {
+                    if samples > last_sent_time + (sampling_frequency * active_channels.len() as u32 / OSC_PER_SEC) as usize {
                         send_rms_osc(&osc_sender, &active_channels, &rms_vec, &max_amp_vec, &osc_prefix);
                         for i in 0..active_channels.len() {
                             max_amp_vec[i] = 0.;
