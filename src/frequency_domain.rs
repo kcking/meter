@@ -136,14 +136,6 @@ fn find_peaks(buckets : &Vec<IndexedMagnitude>,
     (peaks, valleys)
 }
 
-fn first_peak(buckets : &Vec<IndexedMagnitude>, threshold_coef : f32) -> Option<IndexedMagnitude> {
-    let (peaks, _) = find_peaks(buckets, threshold_coef);
-    if peaks.len() >= 1usize {
-        return Some(peaks[0].clone());
-    }
-    None
-}
-
 fn zero_padded_fft_norm(buf : &Vec<kiss_fft_cpx>, zeros : usize) -> Vec<f32>{
     let mut zero_vec = vec!();
     for _ in 0..zeros {
@@ -161,15 +153,8 @@ fn zero_padded_fft_norm(buf : &Vec<kiss_fft_cpx>, zeros : usize) -> Vec<f32>{
 
 fn fft_inv_real(buf : &Vec<kiss_fft_cpx>) -> Vec<f32>{
     let mut fft = KissFFT::new(buf.len(), true);
-    let mut fft_out = fft.transform_norm_to_vec(&buf[..]);
+    let fft_out = fft.transform_norm_to_vec(&buf[..]);
     fft_out.into_iter().map(|r| r.r).collect()
-}
-
-fn zero_padded_cepstrum(buf : &Vec<kiss_fft_cpx>, zeros : usize) -> Vec<f32> {
-    let fft_norm = zero_padded_fft_norm(buf, zeros);
-    let fft_norm_kiss = fft_norm.into_iter().map(|r| kiss_fft_cpx{r: (r*r).ln(), i: 0f32}).collect();
-    let cepstrum = zero_padded_fft_norm(&fft_norm_kiss, 0);
-    cepstrum
 }
 
 use std::f32::consts;
@@ -207,8 +192,6 @@ pub fn meter_fft(
     ) -> JoinHandle<()> {
         let mut chan_index = 0;
         let fft_buckets = 2048;
-        let zero_pad_coef = 8192 / fft_buckets;
-        let n = fft_buckets * zero_pad_coef;
         let mut samples = 0usize;
         let mut last_sent_time = 0usize;
         let mut bufs_by_channel = Vec::new();
