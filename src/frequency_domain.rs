@@ -39,7 +39,7 @@ fn index_magnitudes(mags : &Vec<f32>) -> Vec<IndexedMagnitude> {
     indexed
 }
 use std::f32;
-const PEAK_THRESHOLD : f32 = 9./10.;
+const PEAK_THRESHOLD : f32 = 9.5/10.;
 fn pitch_detect_ac(buckets : &Vec<f32>, fs : usize) -> Option<(f32, usize)> {
     //  1 indexed
     //  filter to peaks
