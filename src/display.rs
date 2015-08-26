@@ -10,7 +10,7 @@ pub struct App {
     // OpenGL drawing backend.
     gl: GlGraphics,
     fft_magnitudes: Arc<Mutex<Vec<f32>>>,
-    vertical_lines : Arc<Mutex<Vec<([f32 ; 4], usize)>>>
+    vertical_lines : Arc<Mutex<Vec<([f32 ; 4], f32)>>>
 }
 
 impl App {
@@ -74,7 +74,7 @@ impl App {
 }
 
 pub fn init(fft_magnitudes : Arc<Mutex<Vec<f32>>>,
-            vertical_lines : Arc<Mutex<Vec<([f32; 4], usize)>>>) {
+            vertical_lines : Arc<Mutex<Vec<([f32; 4], f32)>>>) {
     let opengl = OpenGL::V3_2;
 
     // Create an Glutin window.

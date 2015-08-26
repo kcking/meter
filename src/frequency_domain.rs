@@ -38,9 +38,24 @@ fn index_magnitudes(mags : &Vec<f32>) -> Vec<IndexedMagnitude> {
     }
     indexed
 }
+
+//  from https://ccrma.stanford.edu/~jos/sasp/Quadratic_Interpolation_Spectral_Peaks.html
+fn quad_interp(v : &Vec<f32>, i : usize) -> f32 {
+    if i == 0 {
+        return 0f32;
+    }
+    if i == v.len() - 1 {
+        return i as f32;
+    }
+    let a = v[i-1];
+    let b = v[i];
+    let c = v[i + 1];
+    let p = 0.5 * (a - c) / (a - 2.*b + c);
+    i as f32 + p
+}
 use std::f32;
 const PEAK_THRESHOLD : f32 = 9.5/10.;
-fn pitch_detect_ac(buckets : &Vec<f32>, fs : usize) -> Option<(f32, usize)> {
+fn pitch_detect_ac(buckets : &Vec<f32>, fs : usize) -> Option<(f32, f32)> {
     //  1 indexed
     //  filter to peaks
     let buckets = &mut buckets.clone()[0..buckets.len()/4].to_vec();
@@ -57,7 +72,8 @@ fn pitch_detect_ac(buckets : &Vec<f32>, fs : usize) -> Option<(f32, usize)> {
     let peaks = find_peaks(&index_magnitudes(buckets)[first_zero_idx..buckets.len()].to_vec(), PEAK_THRESHOLD).0;
     for peak in peaks.iter() {
         if peak.index > first_zero_idx {
-            return Some((fs as f32 / 2. / peak.index as f32, peak.index));
+            let interped_peak = quad_interp(&buckets, peak.index);
+            return Some((fs as f32 / 2. / interped_peak, interped_peak));
         }
     }
     None
@@ -187,7 +203,7 @@ pub fn meter_fft(
     osc_sender : Arc<Mutex<OscSender>>,
     osc_prefix : String,
     display_buckets : Arc<Mutex<Vec<f32>>>,
-    display_lines : Arc<Mutex<Vec<([f32; 4], usize)>>>,
+    display_lines : Arc<Mutex<Vec<([f32; 4], f32)>>>,
     display_chan_index : Option<i32>,
     ) -> JoinHandle<()> {
         let mut chan_index = 0;
@@ -236,11 +252,11 @@ pub fn meter_fft(
                                 let mut display_lines = display_lines.lock().unwrap();
                                 display_lines.clear();
                                 for mtn in peaks.iter() {
-                                    display_lines.push((red.clone(), mtn.index.clone()));
+                                    display_lines.push((red.clone(), mtn.index.clone() as f32));
                                 }
                                 for valley in valleys.iter() {
                                     if let &Some(ref valley) = valley {
-                                        display_lines.push((yellow.clone(), valley.index.clone()));
+                                        display_lines.push((yellow.clone(), valley.index.clone() as f32));
                                     }
                                 }
                                 display_buckets.push_all(&fft_norm[..]);
