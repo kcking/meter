@@ -38,12 +38,27 @@ fn index_magnitudes(mags : &Vec<f32>) -> Vec<IndexedMagnitude> {
     }
     indexed
 }
-
-fn pitch_detect(buckets : &Vec<f32>, fs : usize) -> Option<f32> {
+use std::f32;
+const PEAK_THRESHOLD : f32 = 9./10.;
+fn pitch_detect_ac(buckets : &Vec<f32>, fs : usize) -> Option<(f32, usize)> {
     //  1 indexed
     //  filter to peaks
-    if let Some(peak) = first_peak(&find_peaks(&index_magnitudes(buckets), 1./10.).0, 1./5.) {
-        return Some((peak.index * fs) as f32 / (buckets.len() as f32 * 2.0));
+    let buckets = &mut buckets.clone()[0..buckets.len()/4].to_vec();
+    for i in 0..buckets.len() {
+        buckets[i] = f32::max(0., buckets[i]);
+    }
+    let mut first_zero_idx = 0usize;
+    for i in 0..buckets.len() {
+        if buckets[i] <= 0. {
+            first_zero_idx = i;
+            break;
+        }
+    }
+    let peaks = find_peaks(&index_magnitudes(buckets)[first_zero_idx..buckets.len()].to_vec(), PEAK_THRESHOLD).0;
+    for peak in peaks.iter() {
+        if peak.index > first_zero_idx {
+            return Some((fs as f32 / 2. / peak.index as f32, peak.index));
+        }
     }
     None
 }
@@ -144,6 +159,41 @@ fn zero_padded_fft_norm(buf : &Vec<kiss_fft_cpx>, zeros : usize) -> Vec<f32>{
     Vec::from_iter(fft_out.iter().map(|c| (c.r * c.r + c.i * c.i).sqrt()))
 }
 
+fn fft_inv_real(buf : &Vec<kiss_fft_cpx>) -> Vec<f32>{
+    let mut fft = KissFFT::new(buf.len(), true);
+    let mut fft_out = fft.transform_norm_to_vec(&buf[..]);
+    fft_out.into_iter().map(|r| r.r).collect()
+}
+
+fn zero_padded_cepstrum(buf : &Vec<kiss_fft_cpx>, zeros : usize) -> Vec<f32> {
+    let fft_norm = zero_padded_fft_norm(buf, zeros);
+    let fft_norm_kiss = fft_norm.into_iter().map(|r| kiss_fft_cpx{r: (r*r).ln(), i: 0f32}).collect();
+    let cepstrum = zero_padded_fft_norm(&fft_norm_kiss, 0);
+    cepstrum
+}
+
+use std::f32::consts;
+fn hann_window(v : Vec<kiss_fft_cpx>) -> Vec<kiss_fft_cpx> {
+    let mut v = v;
+    for i in 0..v.len() {
+        v[i] = kiss_fft_cpx{
+            r : v[i].r * ((consts::PI * i as f32) / (v.len() as f32 - 1.)).sin().powi(2),
+            i : v[i].i * ((consts::PI * i as f32) / (v.len() as f32 - 1.)).sin().powi(2)
+        };
+    }
+    v
+}
+
+fn autocorrelate(buf : &Vec<kiss_fft_cpx>) -> Vec<f32> {
+    let buf = hann_window(buf.clone());
+    let mut fft_norm : Vec<f32> = zero_padded_fft_norm(&buf, buf.len()).into_iter().map(|r| r*r).collect();
+    fft_norm[0] = 0f32;
+    let ac = fft_inv_real(&fft_norm.into_iter().map(|r| kiss_fft_cpx{r:r, i:0f32}).collect());
+    let first = ac[0];
+    let ac = ac.into_iter().map(|e| e/first).collect();
+    ac
+}
+
 use std::iter::FromIterator;
 pub fn meter_fft(
     sampling_frequency : usize,
@@ -156,8 +206,8 @@ pub fn meter_fft(
     display_chan_index : Option<i32>,
     ) -> JoinHandle<()> {
         let mut chan_index = 0;
-        let fft_buckets = 512;
-        let zero_pad_coef = 8192 / 2 / fft_buckets;
+        let fft_buckets = 2048;
+        let zero_pad_coef = 8192 / fft_buckets;
         let n = fft_buckets * zero_pad_coef;
         let mut samples = 0usize;
         let mut last_sent_time = 0usize;
@@ -179,12 +229,17 @@ pub fn meter_fft(
                     let buf = &mut bufs_by_channel[chan_index];
                     buf.push(kiss_fft_cpx{r : s, i : 0f32});
                     if buf.len() == fft_buckets {
-                        let fft_norm = zero_padded_fft_norm(&buf, n - fft_buckets);
-                        let (peaks, valleys) = find_peaks(&index_magnitudes(&fft_norm), 1./10.);
+                        let fft_norm = autocorrelate(buf);
+                        //let fft_norm = zero_padded_cepstrum(&hann_window(buf.clone()), n - fft_buckets);
+
+                        let (peaks, valleys) = find_peaks(&index_magnitudes(&fft_norm), PEAK_THRESHOLD);
                         let (mtns, _) = find_peaks(&peaks, 1./5.);
                         num_peaks_by_chan[chan_index] = mtns.len();
-                        if let Some(detected_pitch) = pitch_detect(&fft_norm, sampling_frequency) {
+                        if let Some((detected_pitch, index)) = pitch_detect_ac(&fft_norm, sampling_frequency) {
+                            let black = [0./255., 0./255., 0./255., 0.5];
                             pitch_by_chan[chan_index] = detected_pitch;
+                            let mut display_lines = display_lines.lock().unwrap();
+                            display_lines.push((black.clone(), index));
                         }
                         let dissonance = compute_dissonance(&fft_norm, sampling_frequency);
                         dissonance_by_chan[chan_index] = dissonance;
@@ -197,7 +252,7 @@ pub fn meter_fft(
                                 let red = [239./255., 101./255., 68./255., 1.];
                                 let mut display_lines = display_lines.lock().unwrap();
                                 display_lines.clear();
-                                for mtn in mtns.iter() {
+                                for mtn in peaks.iter() {
                                     display_lines.push((red.clone(), mtn.index.clone()));
                                 }
                                 for valley in valleys.iter() {
@@ -243,7 +298,7 @@ pub fn meter_fft(
 
                             }
                         }
-                        let drain = buf.len() / 2;
+                        let drain = buf.len() * 3 / 4;
                         for _ in 0..drain {
                             buf.remove(0);
                         }

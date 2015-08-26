@@ -2,6 +2,7 @@
 #![feature(core)]
 #![feature(split_off)]
 #![feature(vec_push_all)]
+#![feature(map_in_place)]
 
 extern crate core;
 extern crate rustc_serialize;
