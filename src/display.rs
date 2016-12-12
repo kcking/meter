@@ -80,7 +80,7 @@ pub fn init(fft_magnitudes : Arc<Mutex<Vec<f32>>>,
 
     // Create an Glutin window.
     let mut window : Window = WindowSettings::new(
-            "meter | Opera of the Future",
+            "meter | Kevin King",
             [920, 500]
         )
         .opengl(opengl)
