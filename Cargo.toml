@@ -4,16 +4,16 @@ version = "0.1.0"
 authors = ["Kevin King <4kevinking@gmail.com>"]
 
 [dependencies]
-getopts = "0.2"
+getopts = "*"
 sound_stream = "*"
-num = "0.1.25"
-piston = "0.4.1"
-piston2d-graphics = "0.4.1"
-pistoncore-glutin_window = "0.5.0"
-piston2d-opengl_graphics = "0.6.0"
-itertools = "0.3"
-toml = "0.1.21"
-rustc-serialize = "0.3"
+num = "*"
+piston = "*"
+piston2d-graphics = "*"
+pistoncore-glutin_window = "*"
+piston2d-opengl_graphics = "*"
+itertools = "*"
+toml = "*"
+rustc-serialize = "*"
 
 [dependencies.kissfft]
 git = "https://github.com/kcking/rust-kissfft.git"

@@ -1,12 +1,13 @@
 use bounded_spsc_queue::{Consumer};
 use kissfft::KissFFT;
 use kissfft::binding::kiss_fft_cpx;
-use osc::osc_sender::*;
-use osc::osc_data::OscPacket::*;
-use osc::osc_data::OscArg::*;
+use osc::sender::*;
+use osc::data::OscPacket::*;
+use osc::data::OscArg::*;
 use std::thread;
 use std::thread::{JoinHandle};
 use std::sync::{Arc, Mutex};
+use std::net::SocketAddrV4;
 use itertools::Itertools;
 
 const OSC_PER_SEC : usize = 30usize;
@@ -158,8 +159,8 @@ fn zero_padded_fft_norm(buf : &Vec<kiss_fft_cpx>, zeros : usize) -> Vec<f32>{
         zero_vec.push(kiss_fft_cpx{r : 0f32, i : 0f32});
     }
     let mut fft_buf = vec!();
-    fft_buf.push_all(&zero_vec[..]);
-    fft_buf.push_all(&buf[..]);
+    fft_buf.extend(&zero_vec[..]);
+    fft_buf.extend(&buf[..]);
     let mut fft = KissFFT::new(buf.len() + zeros, false);
     let mut fft_out = fft.transform_norm_to_vec(&fft_buf[..]);
     let n = fft_out.len();
@@ -200,7 +201,7 @@ pub fn meter_fft(
     sampling_frequency : usize,
     active_channels : Vec<String>,
     c : Consumer<f32>,
-    osc_sender : Arc<Mutex<OscSender>>,
+    osc_sender : Arc<Mutex<OscSender<SocketAddrV4>>>,
     osc_prefix : String,
     display_buckets : Arc<Mutex<Vec<f32>>>,
     display_lines : Arc<Mutex<Vec<([f32; 4], f32)>>>,
@@ -246,7 +247,8 @@ pub fn meter_fft(
                             if display_chan_index == chan_index as i32 {
                                 let mut display_buckets = display_buckets.lock().unwrap();
                                 display_buckets.clear();
-                                display_buckets.push_all(&fft_norm[..]);
+                                display_buckets.extend(
+                                    fft_norm.split_at(fft_norm.len() / 2).0);
                                 let yellow = [243./255., 232./255., 51./255., 0.5];
                                 let red = [239./255., 101./255., 68./255., 1.];
                                 let mut display_lines = display_lines.lock().unwrap();
@@ -259,7 +261,6 @@ pub fn meter_fft(
                                         display_lines.push((yellow.clone(), valley.index.clone() as f32));
                                     }
                                 }
-                                display_buckets.push_all(&fft_norm[..]);
                             }
                         }
                         if samples > last_sent_time + sampling_frequency * active_channels.len() / OSC_PER_SEC {

@@ -1,7 +1,6 @@
 #![feature(convert)]
 #![feature(core)]
 #![feature(split_off)]
-#![feature(vec_push_all)]
 
 extern crate core;
 extern crate rustc_serialize;
@@ -30,9 +29,9 @@ extern crate sound_stream;
 //use sound_stream::{CallbackFlags, CallbackResult, SoundStream, Settings, StreamParams};
 use sound_stream::*;
 extern crate osc;
-use osc::osc_sender::*;
-use osc::osc_data::OscPacket::*;
-use osc::osc_data::OscArg::*;
+use osc::sender::*;
+use osc::data::OscPacket::*;
+use osc::data::OscArg::*;
 use std::net::{Ipv4Addr,SocketAddrV4};
 use core::str::FromStr;
 
@@ -46,7 +45,7 @@ extern crate itertools;
 
 
 fn send_rms_osc(
-    sender : &Arc<Mutex<OscSender>>,
+    sender : &Arc<Mutex<OscSender<SocketAddrV4>>>,
     active_channels : &[String],
     rms_list : &[f32],
     max_amp_list : &[f32],
@@ -80,7 +79,7 @@ fn meter_rms(
     active_channels : Vec<String>,
     c : Consumer<f32>,
     p : Producer<f32>,
-    osc_sender : Arc<Mutex<OscSender>>,
+    osc_sender : Arc<Mutex<OscSender<SocketAddrV4>>>,
     osc_prefix : String,
     ) -> JoinHandle<()> {
         let mut rms_vec : Vec<f32> = Vec::new();
@@ -176,7 +175,7 @@ fn main() {
     let (p_rms, c_fft) = bounded_spsc_queue::make(16 * frames_per_buffer * (total_channels as usize));
 
     let sender =
-        match OscSender::new(
+        match OscSender::<SocketAddrV4>::new(
             SocketAddrV4::new(Ipv4Addr::from_str("0.0.0.0").unwrap(), 0),
             SocketAddrV4::new(Ipv4Addr::from_str(send_ip.as_str()).unwrap(), send_port)
             ) {

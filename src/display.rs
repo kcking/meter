@@ -1,8 +1,9 @@
 
 use piston::window::WindowSettings;
-use piston::event::*;
+use piston::input::*;
 use glutin_window::GlutinWindow as Window;
 use opengl_graphics::{ GlGraphics, OpenGL };
+use piston::event_loop::Events;
 
 use std::sync::{Arc, Mutex};
 
@@ -78,14 +79,12 @@ pub fn init(fft_magnitudes : Arc<Mutex<Vec<f32>>>,
     let opengl = OpenGL::V3_2;
 
     // Create an Glutin window.
-    let window = Window::new(
-        WindowSettings::new(
+    let mut window : Window = WindowSettings::new(
             "meter | Opera of the Future",
             [920, 500]
         )
         .opengl(opengl)
-        .exit_on_esc(true)
-    );
+        .exit_on_esc(true).build().unwrap();
 
     // Create a new game and run it.
     let mut app = App {
@@ -93,7 +92,8 @@ pub fn init(fft_magnitudes : Arc<Mutex<Vec<f32>>>,
         fft_magnitudes: fft_magnitudes,
         vertical_lines : vertical_lines
     };
-    for e in window.events() {
+    let mut events = window.events();
+    while let Some(e) = events.next(&mut window) {
         if let Some(r) = e.render_args() {
             app.render(&r);
         }
