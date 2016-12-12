@@ -21,5 +21,5 @@ git = "https://github.com/kcking/rust-kissfft.git"
 [dependencies.bounded-spsc-queue]
 git = "https://github.com/kcking/bounded-spsc-queue.git"
 
-[dependencies.rust-osc]
+[dependencies.osc]
 git = "https://github.com/generalelectrix/rust-osc.git"
